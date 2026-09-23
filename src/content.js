@@ -79,9 +79,10 @@
       state.cache = cache;
       schedule();
     });
-    if (result.stale || state.groupId !== groupId) return;
-    state.paused = result.paused;
+    if (result.stale) return;
     if (result.paused) pausedForPageLoad = true;
+    if (state.groupId !== groupId) return;
+    state.paused = result.paused;
     // Prune only after the full post list loaded, so a failed request never deletes pins.
     if (result.complete) state.pinnedIds = await pins.prune(groupId, state.cache.posts.map((p) => p.id));
     schedule();

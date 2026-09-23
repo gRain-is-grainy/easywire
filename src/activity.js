@@ -1,10 +1,12 @@
 (function (root) {
   function summarize(post, comments) {
     let last = Date.parse(post.publishedAt);
+    if (!Number.isFinite(last)) last = -Infinity;
     for (const comment of comments) {
       const time = Date.parse(comment.createdAt);
       if (time > last) last = time;
     }
+    if (!Number.isFinite(last)) return { replyCount: comments.length, lastActivityAt: null };
     return { replyCount: comments.length, lastActivityAt: new Date(last).toISOString() };
   }
 

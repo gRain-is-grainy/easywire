@@ -176,6 +176,46 @@ test('load returns an empty cache for an unknown group', async () => {
   assert.deepEqual(await fetcher.load('nope'), { posts: [], summaries: {} });
 });
 
+test('malformed first page (data not an array) is incomplete, cache untouched', async () => {
+  const storage = fakeStorage();
+  const request = async () => ({ ok: true, status: 200, data: { posts: [] } });
+  const fetcher = createFetcher({ request, storage });
+
+  assert.deepEqual(await fetcher.refresh(G, () => {}), { complete: false, paused: false });
+  assert.deepEqual(await fetcher.load(G), { posts: [], summaries: {} });
+});
+
+test('malformed page 2 of 45 posts is incomplete, cache untouched', async () => {
+  const posts = makePosts(45);
+  const storage = fakeStorage();
+  const request = async (url) => {
+    const u = new URL(url);
+    if (u.searchParams.get('before')) return { ok: true, status: 200, data: { posts: [] } };
+    const page = posts.slice(0, Number(u.searchParams.get('number')));
+    return { ok: true, status: 200, data: page };
+  };
+  const fetcher = createFetcher({ request, storage });
+
+  assert.deepEqual(await fetcher.refresh(G, () => {}), { complete: false, paused: false });
+  assert.deepEqual(await fetcher.load(G), { posts: [], summaries: {} });
+});
+
+test('de-dupes when before= is inclusive (boundary post repeated across pages)', async () => {
+  const posts = makePosts(25);
+  const request = async (url) => {
+    const u = new URL(url);
+    const before = u.searchParams.get('before');
+    const page = posts.filter((p) => !before || p.publishedAt <= before).slice(0, Number(u.searchParams.get('number')));
+    return { ok: true, status: 200, data: page };
+  };
+  const fetcher = createFetcher({ request, storage: fakeStorage() });
+
+  assert.deepEqual(await fetcher.refresh(G, () => {}), { complete: true, paused: false });
+  const cache = await fetcher.load(G);
+  assert.equal(cache.posts.length, 25);
+  assert.equal(new Set(cache.posts.map((p) => p.id)).size, 25);
+});
+
 test('a newer refresh makes the running one stale (class switch mid-fetch)', async () => {
   const api = fakeApi({ posts: makePosts(10), delay: 2 });
   const fetcher = createFetcher({ request: api.request, storage: fakeStorage() });

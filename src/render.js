@@ -166,7 +166,7 @@
       html += `<div class="filter-by d-flex align-items-center ew-section" role="button"><i class="fas fa-chevron-${state.collapsed ? 'right' : 'down'}"></i> My pins</div>`;
       if (!state.collapsed) html += pinned.map(item).join('');
     }
-    if (state.sorted) {
+    if (state.sorted && state.posts.length) {
       html += '<div class="filter-by d-flex align-items-center">Recent activity</div>';
       html += sortByActivity(state.posts, state.summaries).map(item).join('');
     }
@@ -204,7 +204,7 @@
     const byNumber = new Map(state.posts.map((post) => [post.number, post]));
     for (const item of nativeList.querySelectorAll(SELECTORS.item)) decorateNative(item, byNumber, state);
     renderRoot(nativeList, state);
-    const display = state.sorted ? 'none' : '';
+    const display = state.sorted && state.posts.length ? 'none' : '';
     if (nativeList.style.display !== display) nativeList.style.display = display;
   }
 

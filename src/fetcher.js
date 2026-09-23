@@ -30,14 +30,20 @@
 
     async function fetchAllPosts(groupId, isStale) {
       const posts = [];
+      const seen = new Set();
       let before = null;
       while (!isStale()) {
         let url = `${API}${groupId}/posts?number=${pageSize}`;
         if (before) url += `&before=${encodeURIComponent(before)}`;
         const response = await request(url);
         if (!response.ok) return { ok: false, status: response.status };
-        const page = Array.isArray(response.data) ? response.data : [];
-        posts.push(...page);
+        if (!Array.isArray(response.data)) return { ok: false, status: 0 };
+        const page = response.data;
+        for (const post of page) {
+          if (seen.has(post.id)) continue;
+          seen.add(post.id);
+          posts.push(post);
+        }
         const last = page[page.length - 1];
         if (page.length < pageSize || !last || last.publishedAt === before) return { ok: true, posts };
         before = last.publishedAt;
