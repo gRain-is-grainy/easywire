@@ -72,3 +72,11 @@ test('itemHtml puts the reply count right after the time', () => {
   );
   assert.ok(/2 days<span class="ew-count">.*?<span>7<\/span><\/span><\/div>/.test(html));
 });
+
+test('itemHtml has an avatar-width column before the post, like Campuswire cards', () => {
+  const html = itemHtml(
+    { id: 'p5', number: 5, title: 't', body: 'b', likesCount: 0, answered: false },
+    { time: '2 days', count: null, pinned: false }
+  );
+  assert.ok(/ew-item" data-number="5"><div class="ew-avatar"><\/div><div class="post-preview">/.test(html));
+});
