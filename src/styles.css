@@ -1,7 +1,15 @@
+/* Sized like Campuswire's check-mark circle (.post-type-icon) and sits right below it. */
 .ew-pin {
-  background: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
   border: 0;
-  padding: 0 0 0 6px;
+  border-radius: 50%;
+  background: none;
+  font-size: 9px;
   color: #9aa0a6;
   cursor: pointer;
   opacity: 0;
@@ -11,6 +19,7 @@
   opacity: 1;
 }
 .ew-pin.is-pinned {
+  background: #e8e6fc;
   color: #5046e5;
 }
 .ew-count {

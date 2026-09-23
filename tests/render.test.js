@@ -53,3 +53,22 @@ test('sameTitle: ignores surrounding and repeated whitespace, rejects other titl
   assert.equal(sameTitle('HW 3 question', 'Exam logistics'), false);
   assert.equal(sameTitle('', 'Exam logistics'), false);
 });
+
+test('itemHtml puts the pin in the footer stats, not the title row', () => {
+  const html = itemHtml(
+    { id: 'p3', number: 3, title: 't', body: 'b', likesCount: 0, answered: false },
+    { time: '2 days', count: 1, pinned: false }
+  );
+  const title = /<div class="post-title[^"]*">.*?<\/div>/.exec(html)[0];
+  const stats = /<div class="post-preview-stats">.*?<\/div>/.exec(html)[0];
+  assert.ok(!title.includes('ew-pin'));
+  assert.ok(stats.includes('ew-pin'));
+});
+
+test('itemHtml puts the reply count right after the time', () => {
+  const html = itemHtml(
+    { id: 'p4', number: 4, title: 't', body: 'b', likesCount: 0, answered: true },
+    { time: '2 days', count: 7, pinned: false }
+  );
+  assert.ok(/2 days<span class="ew-count">.*?<span>7<\/span><\/span><\/div>/.test(html));
+});

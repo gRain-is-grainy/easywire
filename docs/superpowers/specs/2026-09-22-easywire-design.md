@@ -8,7 +8,7 @@ Status: approved in chat, pending written-spec review
 A personal Chrome extension that makes the Campuswire class feed easier to follow:
 
 1. The time on each feed item reflects the **latest activity** (post or newest reply), not just the post time.
-2. Each feed item shows its **reply count**, in the same style as the time.
+2. Each feed item shows its **reply count**, right after the time, in the same style.
 3. A **"Recent activity"** toggle sorts the whole feed by latest activity.
 4. **Personal pins**: pin any post; pinned posts appear in a "My pins" section at the top of the feed.
 5. An **on/off switch** in the toolbar popup.
@@ -89,7 +89,7 @@ Plain JavaScript, no build step, no runtime dependencies.
 
 ### Feature 4 — personal pins
 
-- A pin icon on each feed item (native and ours): visible on hover, always visible when pinned. Click toggles the pin and does not open the post.
+- A pin icon at the right of each feed item's footer (native and ours), sized like Campuswire's 16px check-mark circle and directly below it, so the title row keeps Campuswire's layout: visible on hover, always visible when pinned. Click toggles the pin and does not open the post.
 - A collapsible "My pins" section at the top of the feed list in both modes, sorted by `lastActivityAt` desc, same item rendering.
 - Pins are per class, stored in `chrome.storage.sync`. After a full fetch, pinned ids not found in the class's posts are pruned; an empty post list for a class with cached posts counts as a failed fetch and prunes nothing. If sync storage is full, the user is told the pin was not saved.
 
