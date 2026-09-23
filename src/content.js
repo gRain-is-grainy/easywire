@@ -98,6 +98,12 @@
       saveUi();
       schedule();
     },
+    onSortOff() {
+      if (!state.sorted) return;
+      state.sorted = false;
+      saveUi();
+      schedule();
+    },
     onToggleCollapsed() {
       state.collapsed = !state.collapsed;
       saveUi();

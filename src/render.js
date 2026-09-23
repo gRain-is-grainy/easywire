@@ -2,14 +2,15 @@
   const SELECTORS = {
     column: '.left-col-2',
     nativeList: '.left-col-2 .posts-list-wrap:not(.ew-root)',
-    categoryWrap: '.left-col-2 .sidebar-category-wrap',
-    categoryDropdown: '.dropdown-btn-wrapper',
+    categoryButton: '.left-col-2 .dropdown-btn-wrapper > button',
+    categoryMenu: 'ul.dropdown-menu.categories-list', // Tippy popup, mounted on <body> only while open
     item: '.post-preview-wrapper',
     titleText: '.post-title h3',
     ref: '.post-ref',
     time: '.post-time',
     stats: '.post-preview-stats',
   };
+  const RECENT_LABEL = 'Recent activity';
   let handlers = null;
   let warned = false;
 
@@ -128,28 +129,51 @@
     if (stats) setPin(stats, post.id, view.pinned);
   }
 
-  function ensureToggle(wrap, state) {
-    let button = wrap.querySelector(':scope > .ew-toggle');
-    if (!button) {
-      const html = '<button type="button" class="btn btn-outline ew-toggle"><i class="far fa-clock"></i></button>';
-      const dropdown = wrap.querySelector(`:scope > ${SELECTORS.categoryDropdown}`);
-      if (dropdown) dropdown.insertAdjacentHTML('afterend', html);
-      else wrap.insertAdjacentHTML('beforeend', html);
-      button = wrap.querySelector(':scope > .ew-toggle');
-      button.addEventListener('click', (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        handlers.onToggleSorted();
-      });
+  // Picking "Recent activity" toggles the sort; picking any Campuswire filter turns it off so that filter applies.
+  function onMenuClick(event) {
+    const li = event.target.closest('li[data-content]');
+    if (!li) return;
+    if (!li.classList.contains('ew-recent')) {
+      handlers.onSortOff();
+      return;
     }
-    const className = state.sorted ? 'btn btn-outline ew-toggle is-on' : 'btn btn-outline ew-toggle';
-    if (button.className !== className) button.className = className;
-    const pressed = String(state.sorted);
-    if (button.getAttribute('aria-pressed') !== pressed) button.setAttribute('aria-pressed', pressed);
+    event.stopPropagation();
+    handlers.onToggleSorted();
+    const button = document.querySelector(SELECTORS.categoryButton);
+    if (button) button.click(); // closes Campuswire's menu
+  }
+
+  function ensureMenuItem(state) {
+    const menu = document.querySelector(SELECTORS.categoryMenu);
+    if (!menu) return;
+    let li = menu.querySelector(':scope > .ew-recent');
+    if (!li) {
+      const html = `<li data-content="true" class="ew-recent"><i class="far fa-clock"></i>${RECENT_LABEL}</li>`;
+      const header = menu.querySelector(':scope > .header');
+      if (header) header.insertAdjacentHTML('beforebegin', html);
+      else menu.insertAdjacentHTML('beforeend', html);
+      li = menu.querySelector(':scope > .ew-recent');
+      menu.addEventListener('click', onMenuClick, true); // same function, so re-adding is a no-op
+    }
+    const className = state.sorted ? 'ew-recent is-on' : 'ew-recent';
+    if (li.className !== className) li.className = className;
     const title = state.paused
       ? 'Activity data paused (Campuswire refused requests); showing cached data'
       : 'Sort all posts by latest post or reply';
-    if (button.title !== title) button.title = title;
+    if (li.title !== title) li.title = title;
+  }
+
+  // Shows "Recent activity" on Campuswire's dropdown button while sorted; restores its label otherwise.
+  function setCategoryLabel(button, sorted) {
+    const node = button.firstChild;
+    if (!node || node.nodeType !== Node.TEXT_NODE) return;
+    if (sorted) {
+      if (!('ewLabel' in button.dataset)) button.dataset.ewLabel = node.nodeValue;
+      if (node.nodeValue !== RECENT_LABEL) node.nodeValue = RECENT_LABEL;
+    } else if ('ewLabel' in button.dataset) {
+      node.nodeValue = button.dataset.ewLabel;
+      delete button.dataset.ewLabel;
+    }
   }
 
   function onRootClick(event) {
@@ -210,15 +234,16 @@
   function render(state, nextHandlers) {
     handlers = nextHandlers;
     const nativeList = document.querySelector(SELECTORS.nativeList);
-    const categoryWrap = document.querySelector(SELECTORS.categoryWrap);
-    if (!nativeList || !categoryWrap) {
+    const categoryButton = document.querySelector(SELECTORS.categoryButton);
+    if (!nativeList || !categoryButton) {
       if (!warned && location.pathname.includes('/feed') && document.querySelector(SELECTORS.column)) {
         warned = true;
         console.warn('[easywire] Campuswire feed layout not recognized; easywire is inactive.');
       }
       return;
     }
-    ensureToggle(categoryWrap, state);
+    ensureMenuItem(state);
+    setCategoryLabel(categoryButton, state.sorted);
     const byNumber = new Map(state.posts.map((post) => [post.number, post]));
     for (const item of nativeList.querySelectorAll(SELECTORS.item)) decorateNative(item, byNumber, state);
     renderRoot(nativeList, state);
@@ -228,7 +253,9 @@
 
   // Undo everything render() added so the page looks like plain Campuswire.
   function teardown() {
-    for (const el of document.querySelectorAll('.ew-root, .ew-toggle, .ew-pin, .ew-count')) el.remove();
+    for (const el of document.querySelectorAll('.ew-root, .ew-recent, .ew-pin, .ew-count')) el.remove();
+    const categoryButton = document.querySelector(SELECTORS.categoryButton);
+    if (categoryButton) setCategoryLabel(categoryButton, false);
     for (const time of document.querySelectorAll('[data-ew-original]')) {
       setClockText(time, time.dataset.ewOriginal);
       delete time.dataset.ewOriginal;

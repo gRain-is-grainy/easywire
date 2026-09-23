@@ -55,7 +55,7 @@ Plain JavaScript, no build step, no runtime dependencies.
 | `src/activity.js` | pure | `summarize(post, comments) → {replyCount, lastActivityAt}`; `sortByActivity(posts, summaries)`; `formatRelative(date, now)`. |
 | `src/fetcher.js` | content script | Pages through all posts; fetches `/comments` per post with concurrency 3; caches slim posts + summaries in `chrome.storage.local` keyed by `groupId`, saving progress every 20 summaries. Paging stops on an empty page or one that does not move `before`. Keeps the refresh throttle and 401/429 pause in storage so they survive reloads. |
 | `src/pins.js` | content script | Pins in `chrome.storage.sync` as `{ pins: { [groupId]: [postId, …] } }`. `list(groupId)`, `toggle(groupId, postId)`, `prune(groupId, existingIds)`. |
-| `src/render.js` | content script | Decorates native feed items, draws "My pins" section and the sorted list, the toggle. All DOM selectors in one `SELECTORS` object. |
+| `src/render.js` | content script | Decorates native feed items, draws "My pins" section and the sorted list, the "Recent activity" dropdown item. All DOM selectors in one `SELECTORS` object. |
 | `src/content.js` | content script | Wires everything: receives messages from `page-hook`, observes the feed with a `MutationObserver`, detects group changes from the URL, triggers fetch/render. |
 | `src/popup/` | extension popup | `popup.html` + `popup.js`: the on/off checkbox (`enabled` in `chrome.storage.local`). |
 | `src/styles.css` | — | Minimal extra styles (pin icon, toggle, section header); otherwise reuse Campuswire classes. |
@@ -82,8 +82,8 @@ Plain JavaScript, no build step, no runtime dependencies.
 
 ### Feature 3 — "Recent activity" toggle
 
-- An icon toggle button (clock icon; tooltip "Sort all posts by latest post or reply") next to the "All categories" dropdown; state persisted in `chrome.storage.local`.
-- **On:** the native list is hidden; our own flat list is shown, all posts in the class sorted by `lastActivityAt` desc (ties: higher `number` first), each item rendered with Campuswire's `post-preview-wrapper` markup/classes plus time, count, and pin icon. No "This week/Last week" headers. Ignores the category dropdown.
+- A "Recent activity" item (clock icon; tooltip "Sort all posts by latest post or reply") added to Campuswire's "All categories" dropdown menu (a Tippy popup, `ul.dropdown-menu.categories-list`), just above the "Categories" header. Clicking it toggles the sort and closes the menu; while on, the item is highlighted and the dropdown button reads "Recent activity". Picking any Campuswire filter or category turns the sort off. State persisted in `chrome.storage.local`.
+- **On:** the native list is hidden; our own flat list is shown, all posts in the class sorted by `lastActivityAt` desc (ties: higher `number` first), each item rendered with Campuswire's `post-preview-wrapper` markup/classes plus time, count, and pin icon. No "This week/Last week" headers. Ignores any category filter.
 - Clicking an item navigates to `/c/{groupSlug}/feed/{number}` by clicking the matching (hidden) native feed item if it is loaded, so Campuswire's router opens it; otherwise `location.assign('/c/{groupSlug}/feed/{number}')`. Items and the "My pins" header work with Enter/Space.
 - **Off:** native list shown, with feature 1 & 2 decorations only.
 
@@ -102,7 +102,7 @@ Plain JavaScript, no build step, no runtime dependencies.
 
 - **No auth header yet:** render what's available; start fetching when the first header is captured.
 - **Single `/comments` failure:** keep cached summary (or fall back to `publishedAt`, no count); retry on next load.
-- **HTTP 401/429:** stop fetching for 10 minutes (across reloads and classes), keep cache, show "activity data paused" in the toggle's tooltip.
+- **HTTP 401/429:** stop fetching for 10 minutes (across reloads and classes), keep cache, show "activity data paused" in the "Recent activity" item's tooltip.
 - **DOM changes:** if `SELECTORS` don't match, do nothing (never break the page); log one console warning.
 
 ## Testing
