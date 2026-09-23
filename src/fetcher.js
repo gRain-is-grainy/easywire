@@ -4,6 +4,7 @@
   const PAUSE_STATUSES = [401, 429];
 
   function slim(post) {
+    const author = post.author || {}; // {} for anonymous posts
     return {
       id: post.id,
       number: post.number,
@@ -13,6 +14,10 @@
       likesCount: post.likesCount || 0,
       answered: Boolean(post.answeredAt),
       note: post.type === 'note',
+      read: post.read !== false,
+      authorId: author.id || '',
+      authorName: [author.firstName, author.lastName].filter(Boolean).join(' '),
+      authorPhoto: author.photo || '',
     };
   }
 

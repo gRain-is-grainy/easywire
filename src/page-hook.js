@@ -1,12 +1,56 @@
 (function () {
   const { isApiUrl, isAllowedRequest, feedGroupId } = window.EasywireGuard;
   const nativeFetch = window.fetch.bind(window);
+  const USERS_URL = 'https://api.campuswire.com/v1/users'; // Campuswire's own member lookup, which carries presence
   let auth = null;
   let lastFeedGroupId = null;
+  const presence = {}; // userId -> Campuswire presence status, replayed on hello
 
   function toContent(message) {
     window.postMessage({ source: 'easywire-page', ...message }, location.origin);
   }
+
+  // Passes on statuses from Campuswire's own traffic; easywire never asks for them itself.
+  function sawUsers(users) {
+    const statuses = {};
+    for (const user of users) {
+      const status = user && user.id && user.presence && user.presence.status;
+      if (typeof status === 'string') statuses[user.id] = status;
+    }
+    if (!Object.keys(statuses).length) return;
+    Object.assign(presence, statuses);
+    toContent({ type: 'presence', statuses });
+  }
+
+  function onUsersLoad() {
+    try {
+      if (this.status !== 200) return;
+      const users = JSON.parse(this.responseText);
+      if (Array.isArray(users)) sawUsers(users);
+    } catch (_) {
+      // Never break the page's own requests.
+    }
+  }
+
+  function onSocketMessage(event) {
+    try {
+      // Check the prefix first so we don't parse every chat frame.
+      if (typeof event.data !== 'string' || !event.data.startsWith('{"event":"presence-changed"')) return;
+      const { data } = JSON.parse(event.data);
+      if (data && data.user) sawUsers([data.user]);
+    } catch (_) {
+      // Never break the page's socket.
+    }
+  }
+
+  const NativeWebSocket = window.WebSocket;
+  window.WebSocket = new Proxy(NativeWebSocket, {
+    construct(target, args, newTarget) {
+      const socket = Reflect.construct(target, args, newTarget);
+      socket.addEventListener('message', onSocketMessage);
+      return socket;
+    },
+  });
 
   // Called for every request the page itself makes. The auth header stays in this closure.
   function sawRequest(method, url, authorization) {
@@ -42,6 +86,7 @@
     const info = this.__easywire;
     try {
       if (info) sawRequest(info.method, info.url, info.authorization);
+      if (info && String(info.method).toUpperCase() === 'POST' && info.url === USERS_URL) this.addEventListener('load', onUsersLoad);
     } catch (_) {
       // Never break the page's own requests.
     }
@@ -66,6 +111,7 @@
     if (event.source !== window || !data || data.source !== 'easywire') return;
     if (data.type === 'hello') {
       if (lastFeedGroupId) toContent({ type: 'feed', groupId: lastFeedGroupId });
+      if (Object.keys(presence).length) toContent({ type: 'presence', statuses: { ...presence } });
       return;
     }
     if (data.type !== 'request') return;
