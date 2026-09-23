@@ -5,7 +5,6 @@
     categoryWrap: '.left-col-2 .sidebar-category-wrap',
     categoryDropdown: '.dropdown-btn-wrapper',
     item: '.post-preview-wrapper',
-    title: '.post-title',
     titleText: '.post-title h3',
     ref: '.post-ref',
     time: '.post-time',
@@ -35,7 +34,7 @@
   }
 
   function countHtml(count) {
-    return `<span class="post-time ew-count"><i class="far fa-comment"></i><span>${Number(count)}</span></span>`;
+    return `<span class="ew-count"><i class="far fa-comment"></i><span>${Number(count)}</span></span>`;
   }
 
   function pinHtml(postId, pinned) {
@@ -49,9 +48,9 @@
     return (
       `<div role="button" tabindex="0" class="post-preview-wrapper d-flex align-items-start ew-item" data-number="${number}">` +
       '<div class="post-preview">' +
-      `<div class="post-title d-flex justify-content-between"><h3>${escapeHtml(post.title)}</h3><span class="post-ref">#${number}</span>${pinHtml(post.id, view.pinned)}</div>` +
+      `<div class="post-title d-flex justify-content-between"><h3>${escapeHtml(post.title)}</h3><span class="post-ref">#${number}</span></div>` +
       `<div class="post-text-wrap d-flex justify-content-between align-items-center"><div class="post-text">${escapeHtml(post.body)}</div>${check}</div>` +
-      `<div class="post-preview-footer d-flex align-items-center"><div class="post-time"><span class="post-likes"><i class="far fa-thumbs-up"></i>${Number(post.likesCount) || 0}</span><i class="far fa-clock"></i>${escapeHtml(view.time)}</div><div class="post-preview-stats">${count}</div></div>` +
+      `<div class="post-preview-footer d-flex align-items-center"><div class="post-time"><span class="post-likes"><i class="far fa-thumbs-up"></i>${Number(post.likesCount) || 0}</span><i class="far fa-clock"></i>${escapeHtml(view.time)}${count}</div><div class="post-preview-stats">${pinHtml(post.id, view.pinned)}</div></div>` +
       '</div></div>'
     );
   }
@@ -78,14 +77,14 @@
     if (node.nodeValue !== text) node.nodeValue = text;
   }
 
-  function setCount(stats, count) {
-    const existing = stats.querySelector(':scope > .ew-count');
+  function setCount(time, count) {
+    const existing = time.querySelector(':scope > .ew-count');
     if (count === null) {
       if (existing) existing.remove();
       return;
     }
     if (!existing) {
-      stats.insertAdjacentHTML('beforeend', countHtml(count));
+      time.insertAdjacentHTML('beforeend', countHtml(count));
       return;
     }
     const label = existing.lastElementChild;
@@ -93,11 +92,11 @@
     if (label.textContent !== text) label.textContent = text;
   }
 
-  function setPin(title, postId, pinned) {
-    const existing = title.querySelector(':scope > .ew-pin');
+  function setPin(stats, postId, pinned) {
+    const existing = stats.querySelector(':scope > .ew-pin');
     if (!existing) {
-      title.insertAdjacentHTML('beforeend', pinHtml(postId, pinned));
-      const button = title.lastElementChild;
+      stats.insertAdjacentHTML('beforeend', pinHtml(postId, pinned));
+      const button = stats.lastElementChild;
       button.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation(); // don't let Campuswire open the post
@@ -121,11 +120,12 @@
     if (titleText && !sameTitle(titleText.textContent, post.title)) return;
     const view = viewOf(post, state);
     const time = item.querySelector(SELECTORS.time);
-    if (time && view.time) setClockText(time, view.time);
+    if (time) {
+      if (view.time) setClockText(time, view.time);
+      setCount(time, view.count);
+    }
     const stats = item.querySelector(SELECTORS.stats);
-    if (stats) setCount(stats, view.count);
-    const title = item.querySelector(SELECTORS.title);
-    if (title) setPin(title, post.id, view.pinned);
+    if (stats) setPin(stats, post.id, view.pinned);
   }
 
   function ensureToggle(wrap, state) {
