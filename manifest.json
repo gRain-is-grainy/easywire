@@ -3,7 +3,7 @@
   "name": "easywire",
   "version": "0.1.0",
   "description": "Campuswire feed: latest-activity times, reply counts, activity sort, and personal pins.",
-  "permissions": ["storage"],
+  "permissions": ["storage", "unlimitedStorage"],
   "content_scripts": [
     {
       "matches": ["https://campuswire.com/*"],

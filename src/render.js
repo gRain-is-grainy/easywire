@@ -6,6 +6,7 @@
     categoryDropdown: '.dropdown-btn-wrapper',
     item: '.post-preview-wrapper',
     title: '.post-title',
+    titleText: '.post-title h3',
     ref: '.post-ref',
     time: '.post-time',
     stats: '.post-preview-stats',
@@ -21,6 +22,11 @@
   function groupSlugFromPath(path) {
     const match = /^\/c\/([^/]+)/.exec(path || '');
     return match ? match[1] : null;
+  }
+
+  function sameTitle(a, b) {
+    const norm = (text) => String(text || '').trim().replace(/\s+/g, ' ');
+    return norm(a) === norm(b);
   }
 
   function escapeHtml(value) {
@@ -109,9 +115,12 @@
     const ref = item.querySelector(SELECTORS.ref);
     const post = byNumber.get(postNumberFromRef(ref && ref.textContent));
     if (!post) return;
+    // Post numbers are per class: a title mismatch means our data is for another class, so leave the item alone.
+    const titleText = item.querySelector(SELECTORS.titleText);
+    if (titleText && !sameTitle(titleText.textContent, post.title)) return;
     const view = viewOf(post, state);
     const time = item.querySelector(SELECTORS.time);
-    if (time) setClockText(time, view.time);
+    if (time && view.time) setClockText(time, view.time);
     const stats = item.querySelector(SELECTORS.stats);
     if (stats) setCount(stats, view.count);
     const title = item.querySelector(SELECTORS.title);
@@ -157,13 +166,20 @@
     if (item) handlers.onOpen(Number(item.dataset.number));
   }
 
+  function onRootKeydown(event) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    if (!event.target.matches('.ew-item, .ew-section')) return;
+    event.preventDefault();
+    onRootClick(event);
+  }
+
   function rootHtml(state) {
     const { sortByActivity } = root.EasywireActivity;
     const item = (post) => itemHtml(post, viewOf(post, state));
     let html = '';
     const pinned = sortByActivity(state.posts.filter((p) => state.pinnedIds.includes(p.id)), state.summaries);
     if (pinned.length) {
-      html += `<div class="filter-by d-flex align-items-center ew-section" role="button"><i class="fas fa-chevron-${state.collapsed ? 'right' : 'down'}"></i> My pins</div>`;
+      html += `<div class="filter-by d-flex align-items-center ew-section" role="button" tabindex="0"><i class="fas fa-chevron-${state.collapsed ? 'right' : 'down'}"></i> My pins</div>`;
       if (!state.collapsed) html += pinned.map(item).join('');
     }
     if (state.sorted && state.posts.length) {
@@ -179,6 +195,7 @@
       rootEl = document.createElement('div');
       rootEl.className = 'posts-list-wrap default-view ew-root';
       rootEl.addEventListener('click', onRootClick);
+      rootEl.addEventListener('keydown', onRootKeydown);
     }
     if (rootEl.nextElementSibling !== nativeList) nativeList.before(rootEl);
     const html = rootHtml(state);
@@ -223,7 +240,7 @@
     if (slug) location.assign(`/c/${slug}/feed/${number}`);
   }
 
-  const api = { SELECTORS, render, openPost, postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml };
+  const api = { SELECTORS, render, openPost, postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.EasywireRender = api;
 })(globalThis);

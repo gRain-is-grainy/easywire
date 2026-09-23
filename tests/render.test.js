@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml } = require('../src/render.js');
+const { postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle } = require('../src/render.js');
 
 test('postNumberFromRef', () => {
   assert.equal(postNumberFromRef('#40'), 40);
@@ -46,4 +46,10 @@ test('itemHtml without count or pin or answer', () => {
   assert.ok(!html.includes('fa-comment'));
   assert.ok(!html.includes('is-pinned'));
   assert.ok(!html.includes('fa-check'));
+});
+
+test('sameTitle: ignores surrounding and repeated whitespace, rejects other titles', () => {
+  assert.equal(sameTitle('  HW 3   question ', 'HW 3 question'), true);
+  assert.equal(sameTitle('HW 3 question', 'Exam logistics'), false);
+  assert.equal(sameTitle('', 'Exam logistics'), false);
 });
