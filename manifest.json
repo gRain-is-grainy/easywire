@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "easywire",
+  "version": "0.1.0",
+  "description": "Campuswire feed: latest-activity times, reply counts, activity sort, and personal pins.",
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": ["https://campuswire.com/*"],
+      "js": ["src/guard.js", "src/page-hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://campuswire.com/*"],
+      "js": ["src/activity.js", "src/pins.js", "src/fetcher.js", "src/render.js", "src/content.js"],
+      "css": ["src/styles.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
