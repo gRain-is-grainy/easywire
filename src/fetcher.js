@@ -92,6 +92,13 @@
       const refreshedAt = await read(refreshedKey(groupId));
       if (refreshedAt != null && now() - refreshedAt < minRefreshMs) return { complete: false, paused: false };
       await storage.set({ [refreshedKey(groupId)]: now() });
+      const result = await crawl(groupId, cached, onUpdate, isStale);
+      // An abandoned crawl (class switch) didn't finish, so it shouldn't throttle coming back to this class.
+      if (result.stale) await storage.set({ [refreshedKey(groupId)]: null });
+      return result;
+    }
+
+    async function crawl(groupId, cached, onUpdate, isStale) {
       if (isStale()) return { stale: true };
 
       const list = await fetchAllPosts(groupId, isStale);
