@@ -42,15 +42,23 @@
     return `<button type="button" class="ew-pin${pinned ? ' is-pinned' : ''}" data-post-id="${escapeHtml(postId)}" title="${pinned ? 'Unpin' : 'Pin'}"><i class="fas fa-thumbtack"></i></button>`;
   }
 
+  // Same icons Campuswire shows; it has none for unresolved questions.
+  function typeIconHtml(post) {
+    const icon = (title, name) => `<div class="post-type-icon" title="${title}"><i class="fas ${name}"></i></div>`;
+    if (post.note) return icon('This is a note', 'fa-pen');
+    if (post.answered) return icon('This question is resolved', 'fa-check');
+    return '';
+  }
+
   function itemHtml(post, view) {
     const number = Number(post.number) || 0;
-    const check = post.answered ? '<div class="post-type-icon"><i class="fas fa-check"></i></div>' : '';
+    const typeIcon = typeIconHtml(post);
     const count = view.count === null ? '' : countHtml(view.count);
     return (
       `<div role="button" tabindex="0" class="post-preview-wrapper d-flex align-items-start ew-item" data-number="${number}">` +
       '<div class="ew-avatar"></div><div class="post-preview">' +
       `<div class="post-title d-flex justify-content-between"><h3>${escapeHtml(post.title)}</h3><span class="post-ref">#${number}</span></div>` +
-      `<div class="post-text-wrap d-flex justify-content-between align-items-center"><div class="post-text">${escapeHtml(post.body)}</div>${check}</div>` +
+      `<div class="post-text-wrap d-flex justify-content-between align-items-center"><div class="post-text">${escapeHtml(post.body)}</div>${typeIcon}</div>` +
       `<div class="post-preview-footer d-flex align-items-center"><div class="post-time"><span class="post-likes"><i class="far fa-thumbs-up"></i>${Number(post.likesCount) || 0}</span><i class="far fa-clock"></i>${escapeHtml(view.time)}${count}</div><div class="post-preview-stats">${pinHtml(post.id, view.pinned)}</div></div>` +
       '</div></div>'
     );

@@ -20,7 +20,7 @@ function makePosts(n) {
 }
 
 function slim(p) {
-  return { id: p.id, number: p.number, title: p.title, body: p.body, publishedAt: p.publishedAt, likesCount: 0, answered: false };
+  return { id: p.id, number: p.number, title: p.title, body: p.body, publishedAt: p.publishedAt, likesCount: 0, answered: false, note: false };
 }
 
 // status: { urlSubstring: httpStatus } forces failures.
@@ -351,4 +351,15 @@ test('cancel stops a running crawl and does not throttle the next refresh', asyn
   assert.deepEqual(await running, { stale: true });
   assert.ok(commentUrls(api).length < 10);
   assert.deepEqual(await fetcher.refresh(G, () => {}), { complete: true, paused: false });
+});
+
+test('slim posts record whether a post is a note', async () => {
+  const [note, question] = makePosts(2);
+  note.type = 'note';
+  question.type = 'question';
+  const fetcher = createFetcher({ request: fakeApi({ posts: [note, question] }).request, storage: fakeStorage() });
+  await fetcher.refresh(G, () => {});
+  const [a, b] = (await fetcher.load(G)).posts;
+  assert.equal(a.note, true);
+  assert.equal(b.note, false);
 });

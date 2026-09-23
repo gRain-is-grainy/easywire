@@ -12,6 +12,7 @@
       publishedAt: post.publishedAt,
       likesCount: post.likesCount || 0,
       answered: Boolean(post.answeredAt),
+      note: post.type === 'note',
     };
   }
 
