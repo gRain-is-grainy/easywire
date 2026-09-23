@@ -56,6 +56,7 @@
       state.pinnedIds = [];
       state.pinnedIds = await pins.list(groupId);
     }
+    state.paused = false; // a real pause comes back from refresh within a couple of storage reads
     const result = await fetcher.refresh(groupId, (cache) => {
       if (state.groupId !== groupId) return;
       state.cache = cache;

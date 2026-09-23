@@ -327,3 +327,16 @@ test('keeps paging when the server returns fewer posts per page than asked', asy
   assert.deepEqual(await fetcher.refresh(G, () => {}), { complete: true, paused: false });
   assert.equal((await fetcher.load(G)).posts.length, 45);
 });
+
+test('a crawl abandoned by a class switch does not throttle returning to that class', async () => {
+  const api = fakeApi({ posts: makePosts(10), delay: 2 });
+  const fetcher = createFetcher({ request: api.request, storage: fakeStorage() });
+  let updates = 0;
+  let toB;
+  const firstA = fetcher.refresh('A', () => {
+    if (++updates === 2) toB = fetcher.refresh('B', () => {});
+  });
+  assert.deepEqual(await firstA, { stale: true });
+  await toB;
+  assert.deepEqual(await fetcher.refresh('A', () => {}), { complete: true, paused: false });
+});
