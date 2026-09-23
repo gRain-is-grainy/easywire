@@ -40,7 +40,11 @@
 
   XMLHttpRequest.prototype.send = function () {
     const info = this.__easywire;
-    if (info) sawRequest(info.method, info.url, info.authorization);
+    try {
+      if (info) sawRequest(info.method, info.url, info.authorization);
+    } catch (_) {
+      // Never break the page's own requests.
+    }
     return xhrSend.apply(this, arguments);
   };
 
