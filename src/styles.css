@@ -31,10 +31,9 @@
 .ew-section {
   cursor: pointer;
 }
-.ew-toggle.is-on {
-  background: #5046e5;
-  border-color: #5046e5;
-  color: #fff;
+.ew-recent.is-on {
+  color: #5046e5;
+  font-weight: 600;
 }
 .ew-root[hidden] {
   display: none;
