@@ -143,7 +143,13 @@
       return { complete: true, paused };
     }
 
-    return { load, refresh };
+    // Abandons any running refresh (the extension was switched off).
+    function cancel() {
+      generation++;
+      runningGroupId = null;
+    }
+
+    return { load, refresh, cancel };
   }
 
   const api = { createFetcher };

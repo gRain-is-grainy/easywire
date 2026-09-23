@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "description": "Campuswire feed: latest-activity times, reply counts, activity sort, and personal pins.",
   "permissions": ["storage", "unlimitedStorage"],
+  "action": { "default_popup": "src/popup/popup.html", "default_title": "easywire" },
   "content_scripts": [
     {
       "matches": ["https://campuswire.com/*"],

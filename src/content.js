@@ -11,7 +11,9 @@
     sorted: false,
     collapsed: false,
     paused: false,
+    enabled: false, // set from storage at startup; the toolbar popup flips it
   };
+  let feedGroupId = null; // last class Campuswire's feed loaded, so switching on can fetch it
 
   // --- bridge to page-hook.js (MAIN world) ---
   let nextRequestId = 0;
@@ -42,7 +44,8 @@
         resolve(data);
       }
     } else if (data.type === 'feed') {
-      onFeed(data.groupId);
+      feedGroupId = data.groupId;
+      if (state.enabled) onFeed(data.groupId);
     }
   });
 
@@ -56,6 +59,7 @@
       state.pinnedIds = [];
       state.pinnedIds = await pins.list(groupId);
     }
+    if (!state.enabled) return; // switched off while pins loaded
     state.paused = false; // a real pause comes back from refresh within a couple of storage reads
     const result = await fetcher.refresh(groupId, (cache) => {
       if (state.groupId !== groupId) return;
@@ -110,6 +114,7 @@
     scheduled = true;
     requestAnimationFrame(() => {
       scheduled = false;
+      if (!state.enabled) return;
       Render.render(
         {
           posts: state.cache.posts,
@@ -137,12 +142,28 @@
   }).observe(document.body, { childList: true, subtree: true, characterData: true });
   setInterval(schedule, 60 * 1000); // keep relative times current; no network
 
-  chrome.storage.local.get('ui').then(({ ui }) => {
+  // page-hook.js still loads while off (manifest scripts can't be switched off), but it only answers our requests.
+  function setEnabled(enabled) {
+    state.enabled = enabled;
+    if (enabled) {
+      if (feedGroupId) onFeed(feedGroupId);
+      schedule();
+    } else {
+      fetcher.cancel();
+      Render.teardown();
+    }
+  }
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && 'enabled' in changes) setEnabled(changes.enabled.newValue !== false);
+  });
+
+  chrome.storage.local.get(['ui', 'enabled']).then(({ ui, enabled }) => {
     if (ui) {
       state.sorted = Boolean(ui.sorted);
       state.collapsed = Boolean(ui.collapsed);
     }
-    schedule();
+    setEnabled(enabled !== false);
   });
 
   // page-hook may have seen the feed request before this script loaded.

@@ -340,3 +340,15 @@ test('a crawl abandoned by a class switch does not throttle returning to that cl
   await toB;
   assert.deepEqual(await fetcher.refresh('A', () => {}), { complete: true, paused: false });
 });
+
+test('cancel stops a running crawl and does not throttle the next refresh', async () => {
+  const api = fakeApi({ posts: makePosts(10), delay: 2 });
+  const fetcher = createFetcher({ request: api.request, storage: fakeStorage() });
+  let updates = 0;
+  const running = fetcher.refresh(G, () => {
+    if (++updates === 2) fetcher.cancel();
+  });
+  assert.deepEqual(await running, { stale: true });
+  assert.ok(commentUrls(api).length < 10);
+  assert.deepEqual(await fetcher.refresh(G, () => {}), { complete: true, paused: false });
+});

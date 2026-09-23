@@ -74,6 +74,7 @@
       node = document.createTextNode('');
       clock.after(node);
     }
+    if (!('ewOriginal' in time.dataset)) time.dataset.ewOriginal = node.nodeValue; // for teardown()
     if (node.nodeValue !== text) node.nodeValue = text;
   }
 
@@ -225,6 +226,17 @@
     if (nativeList.style.display !== display) nativeList.style.display = display;
   }
 
+  // Undo everything render() added so the page looks like plain Campuswire.
+  function teardown() {
+    for (const el of document.querySelectorAll('.ew-root, .ew-toggle, .ew-pin, .ew-count')) el.remove();
+    for (const time of document.querySelectorAll('[data-ew-original]')) {
+      setClockText(time, time.dataset.ewOriginal);
+      delete time.dataset.ewOriginal;
+    }
+    const nativeList = document.querySelector(SELECTORS.nativeList);
+    if (nativeList) nativeList.style.display = '';
+  }
+
   function openPost(number) {
     const nativeList = document.querySelector(SELECTORS.nativeList);
     const items = nativeList ? [...nativeList.querySelectorAll(SELECTORS.item)] : [];
@@ -240,7 +252,7 @@
     if (slug) location.assign(`/c/${slug}/feed/${number}`);
   }
 
-  const api = { SELECTORS, render, openPost, postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle };
+  const api = { SELECTORS, render, teardown, openPost, postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.EasywireRender = api;
 })(globalThis);
