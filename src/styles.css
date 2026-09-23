@@ -1,0 +1,32 @@
+.ew-pin {
+  background: none;
+  border: 0;
+  padding: 0 0 0 6px;
+  color: #9aa0a6;
+  cursor: pointer;
+  opacity: 0;
+}
+.post-preview-wrapper:hover .ew-pin,
+.ew-pin.is-pinned {
+  opacity: 1;
+}
+.ew-pin.is-pinned {
+  color: #5046e5;
+}
+.ew-count {
+  margin-left: 8px;
+}
+.ew-count i {
+  margin-right: 4px;
+}
+.ew-section {
+  cursor: pointer;
+}
+.ew-toggle.is-on {
+  background: #5046e5;
+  border-color: #5046e5;
+  color: #fff;
+}
+.ew-root[hidden] {
+  display: none;
+}
