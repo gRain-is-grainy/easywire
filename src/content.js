@@ -2,7 +2,6 @@
   const { createFetcher } = globalThis.EasywireFetcher;
   const { createPins } = globalThis.EasywirePins;
   const Render = globalThis.EasywireRender;
-  const MIN_REFRESH_MS = 60 * 1000;
   const REQUEST_TIMEOUT_MS = 15 * 1000;
 
   const state = {
@@ -12,9 +11,9 @@
     sorted: false,
     collapsed: false,
     paused: false,
+    enabled: false, // set from storage at startup; the toolbar popup flips it
   };
-  let lastRefresh = { groupId: null, at: 0 };
-  let pausedForPageLoad = false;
+  let feedGroupId = null; // last class Campuswire's feed loaded, so switching on can fetch it
 
   // --- bridge to page-hook.js (MAIN world) ---
   let nextRequestId = 0;
@@ -45,7 +44,8 @@
         resolve(data);
       }
     } else if (data.type === 'feed') {
-      onFeed(data.groupId);
+      feedGroupId = data.groupId;
+      if (state.enabled) onFeed(data.groupId);
     }
   });
 
@@ -53,34 +53,21 @@
   const pins = createPins(chrome.storage.sync);
 
   async function onFeed(groupId) {
-    const now = Date.now();
-    if (groupId === lastRefresh.groupId && now - lastRefresh.at < MIN_REFRESH_MS) return;
-    lastRefresh = { groupId, at: now };
     if (groupId !== state.groupId) {
       state.groupId = groupId;
       state.cache = { posts: [], summaries: {} };
       state.pinnedIds = [];
       state.pinnedIds = await pins.list(groupId);
     }
-    if (pausedForPageLoad) {
-      // Campuswire refused (401/429) earlier this page load: show cached data only, no network.
-      const cache = await fetcher.load(groupId);
-      if (state.groupId !== groupId) return;
-      state.cache = cache;
-      state.paused = true;
-      schedule();
-      return;
-    }
-    state.paused = false;
-    schedule();
-
+    if (!state.enabled) return; // switched off while pins loaded
+    state.paused = false; // a real pause comes back from refresh within a couple of storage reads
     const result = await fetcher.refresh(groupId, (cache) => {
       if (state.groupId !== groupId) return;
       state.cache = cache;
       schedule();
     });
-    if (result.stale) return;
-    if (result.paused) pausedForPageLoad = true;
+    // The fetcher throttles repeat refreshes and holds a 401/429 pause across reloads; see fetcher.js.
+    if (result.stale || result.busy) return;
     if (state.groupId !== groupId) return;
     state.paused = result.paused;
     // Prune only after the full post list loaded, so a failed request never deletes pins.
@@ -96,12 +83,24 @@
     async onTogglePin(postId) {
       const groupId = state.groupId;
       if (!groupId || !postId) return;
-      await pins.toggle(groupId, postId);
+      try {
+        await pins.toggle(groupId, postId);
+      } catch (error) {
+        // chrome.storage.sync caps one item at 8 KB (~200 pins across all classes).
+        console.warn('[easywire] Could not save pin:', error);
+        window.alert('easywire could not save this pin (browser sync storage is full). Unpin some posts and try again.');
+      }
       if (state.groupId === groupId) state.pinnedIds = await pins.list(groupId);
       schedule();
     },
     onToggleSorted() {
       state.sorted = !state.sorted;
+      saveUi();
+      schedule();
+    },
+    onSortOff() {
+      if (!state.sorted) return;
+      state.sorted = false;
       saveUi();
       schedule();
     },
@@ -121,6 +120,7 @@
     scheduled = true;
     requestAnimationFrame(() => {
       scheduled = false;
+      if (!state.enabled) return;
       Render.render(
         {
           posts: state.cache.posts,
@@ -136,15 +136,40 @@
     });
   }
 
-  new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true, characterData: true });
+  // Only feed-column changes matter; ignoring the rest keeps typing in the composer from re-rendering every frame.
+  function touchesFeed(record) {
+    const column = document.querySelector(Render.SELECTORS.column);
+    const node = record.target.nodeType === Node.ELEMENT_NODE ? record.target : record.target.parentNode;
+    return !column || !node || column.contains(node) || node.contains(column);
+  }
+
+  new MutationObserver((records) => {
+    if (records.some(touchesFeed)) schedule();
+  }).observe(document.body, { childList: true, subtree: true, characterData: true });
   setInterval(schedule, 60 * 1000); // keep relative times current; no network
 
-  chrome.storage.local.get('ui').then(({ ui }) => {
+  // page-hook.js still loads while off (manifest scripts can't be switched off), but it only answers our requests.
+  function setEnabled(enabled) {
+    state.enabled = enabled;
+    if (enabled) {
+      if (feedGroupId) onFeed(feedGroupId);
+      schedule();
+    } else {
+      fetcher.cancel();
+      Render.teardown();
+    }
+  }
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && 'enabled' in changes) setEnabled(changes.enabled.newValue !== false);
+  });
+
+  chrome.storage.local.get(['ui', 'enabled']).then(({ ui, enabled }) => {
     if (ui) {
       state.sorted = Boolean(ui.sorted);
       state.collapsed = Boolean(ui.collapsed);
     }
-    schedule();
+    setEnabled(enabled !== false);
   });
 
   // page-hook may have seen the feed request before this script loaded.

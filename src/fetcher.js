@@ -12,16 +12,31 @@
       publishedAt: post.publishedAt,
       likesCount: post.likesCount || 0,
       answered: Boolean(post.answeredAt),
+      note: post.type === 'note',
     };
   }
 
-  function createFetcher({ request, storage, concurrency = 3, pageSize = 20 }) {
+  // Throttle and pause live in storage so they survive page reloads (e.g. opening a post via location.assign).
+  function createFetcher({
+    request,
+    storage,
+    concurrency = 3,
+    pageSize = 20,
+    now = Date.now,
+    minRefreshMs = 60 * 1000,
+    pauseMs = 10 * 60 * 1000,
+  }) {
     let generation = 0;
+    let runningGroupId = null;
     const keyFor = (groupId) => `cache:${groupId}`;
+    const refreshedKey = (groupId) => `refreshedAt:${groupId}`;
+
+    async function read(key) {
+      return (await storage.get(key))[key];
+    }
 
     async function load(groupId) {
-      const stored = (await storage.get(keyFor(groupId)))[keyFor(groupId)];
-      return stored || { posts: [], summaries: {} };
+      return (await read(keyFor(groupId))) || { posts: [], summaries: {} };
     }
 
     function save(groupId, cache) {
@@ -44,24 +59,58 @@
           seen.add(post.id);
           posts.push(post);
         }
+        // Stop on an empty page or one that doesn't move `before`; don't trust the server to return full pages.
         const last = page[page.length - 1];
-        if (page.length < pageSize || !last || last.publishedAt === before) return { ok: true, posts };
+        if (!last || last.publishedAt === before) return { ok: true, posts };
         before = last.publishedAt;
       }
       return { ok: false, status: 0 };
     }
 
+    // A refresh for the group that is already being fetched is ignored, so its progress isn't thrown away.
     async function refresh(groupId, onUpdate) {
+      if (runningGroupId === groupId) return { busy: true };
+      runningGroupId = groupId;
       const mine = ++generation;
-      const isStale = () => mine !== generation;
+      try {
+        return await run(groupId, onUpdate, () => mine !== generation);
+      } finally {
+        if (mine === generation) runningGroupId = null;
+      }
+    }
 
+    function pause() {
+      return storage.set({ pausedUntil: now() + pauseMs });
+    }
+
+    async function run(groupId, onUpdate, isStale) {
       const cached = await load(groupId);
       if (isStale()) return { stale: true };
       onUpdate(cached);
 
+      const pausedUntil = await read('pausedUntil');
+      if (pausedUntil != null && now() < pausedUntil) return { complete: false, paused: true };
+      const refreshedAt = await read(refreshedKey(groupId));
+      if (refreshedAt != null && now() - refreshedAt < minRefreshMs) return { complete: false, paused: false };
+      await storage.set({ [refreshedKey(groupId)]: now() });
+      const result = await crawl(groupId, cached, onUpdate, isStale);
+      // An abandoned crawl (class switch) didn't finish, so it shouldn't throttle coming back to this class.
+      if (result.stale) await storage.set({ [refreshedKey(groupId)]: null });
+      return result;
+    }
+
+    async function crawl(groupId, cached, onUpdate, isStale) {
+      if (isStale()) return { stale: true };
+
       const list = await fetchAllPosts(groupId, isStale);
       if (isStale()) return { stale: true };
-      if (!list.ok) return { complete: false, paused: PAUSE_STATUSES.includes(list.status) };
+      if (!list.ok) {
+        const refused = PAUSE_STATUSES.includes(list.status);
+        if (refused) await pause();
+        return { complete: false, paused: refused };
+      }
+      // An empty list for a class we've seen posts in is more likely a glitch than a wiped class: keep cache and pins.
+      if (!list.posts.length && cached.posts.length) return { complete: false, paused: false };
 
       const posts = list.posts.map(slim);
       const summaries = {};
@@ -73,6 +122,7 @@
 
       let paused = false;
       let next = 0;
+      let done = 0;
       async function worker() {
         while (!paused && !isStale() && next < posts.length) {
           const post = posts[next++];
@@ -81,6 +131,7 @@
           if (response.ok) {
             fresh.summaries[post.id] = summarize(post, Array.isArray(response.data) ? response.data : []);
             onUpdate(fresh);
+            if (++done % pageSize === 0) await save(groupId, fresh); // keep progress if the page reloads
           } else if (PAUSE_STATUSES.includes(response.status)) {
             paused = true;
           }
@@ -89,10 +140,17 @@
       await Promise.all(Array.from({ length: Math.min(concurrency, posts.length) }, worker));
       if (isStale()) return { stale: true };
       await save(groupId, fresh);
+      if (paused) await pause();
       return { complete: true, paused };
     }
 
-    return { load, refresh };
+    // Abandons any running refresh (the extension was switched off).
+    function cancel() {
+      generation++;
+      runningGroupId = null;
+    }
+
+    return { load, refresh, cancel };
   }
 
   const api = { createFetcher };

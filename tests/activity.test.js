@@ -71,3 +71,20 @@ test('formatRelative: matches Campuswire (moment fromNow(true)) wording', () => 
   }
   assert.equal(formatRelative('2026-09-22T12:00:00.123456Z', now), '12 hours');
 });
+
+test('formatRelative: invalid date gives empty text, not NaN', () => {
+  const now = Date.parse('2026-09-23T00:00:00Z');
+  assert.equal(formatRelative(undefined, now), '');
+  assert.equal(formatRelative('not a date', now), '');
+  assert.equal(formatRelative(null, now), '');
+});
+
+test('sortByActivity: posts without a valid time sort last, by number', () => {
+  const posts = [
+    { id: 'x', number: 5, publishedAt: undefined },
+    { id: 'a', number: 1, publishedAt: '2026-09-01T00:00:00Z' },
+    { id: 'y', number: 6, publishedAt: 'bad' },
+    { id: 'b', number: 2, publishedAt: '2026-09-05T00:00:00Z' },
+  ];
+  assert.deepEqual(sortByActivity(posts, {}).map((p) => p.id), ['b', 'a', 'y', 'x']);
+});

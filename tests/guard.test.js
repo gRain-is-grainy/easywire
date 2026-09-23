@@ -29,6 +29,10 @@ test('refuses other endpoints, hosts, schemes, and path tricks', () => {
     'https://api.campuswire.com/v1/group/../posts/../comments',
     `${BASE}/posts/${P}/comments/extra`,
     `${BASE}/posts#frag`,
+    `${BASE}/posts`,
+    `${BASE}/posts?number=20&_method=DELETE`,
+    `${BASE}/posts?_method=DELETE&number=20`,
+    `${BASE}/posts?number=20&before=x&y=1`,
   ];
   for (const url of bad) assert.equal(isAllowedRequest('GET', url), false, url);
 });

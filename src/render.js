@@ -2,14 +2,15 @@
   const SELECTORS = {
     column: '.left-col-2',
     nativeList: '.left-col-2 .posts-list-wrap:not(.ew-root)',
-    categoryWrap: '.left-col-2 .sidebar-category-wrap',
-    categoryDropdown: '.dropdown-btn-wrapper',
+    categoryButton: '.left-col-2 .dropdown-btn-wrapper > button',
+    categoryMenu: 'ul.dropdown-menu.categories-list', // Tippy popup, mounted on <body> only while open
     item: '.post-preview-wrapper',
-    title: '.post-title',
+    titleText: '.post-title h3',
     ref: '.post-ref',
     time: '.post-time',
     stats: '.post-preview-stats',
   };
+  const RECENT_LABEL = 'Recent activity';
   let handlers = null;
   let warned = false;
 
@@ -23,29 +24,42 @@
     return match ? match[1] : null;
   }
 
+  function sameTitle(a, b) {
+    const norm = (text) => String(text || '').trim().replace(/\s+/g, ' ');
+    return norm(a) === norm(b);
+  }
+
   function escapeHtml(value) {
     const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
     return String(value).replace(/[&<>"']/g, (c) => map[c]);
   }
 
   function countHtml(count) {
-    return `<span class="post-time ew-count"><i class="far fa-comment"></i><span>${Number(count)}</span></span>`;
+    return `<span class="ew-count"><i class="far fa-comment"></i><span>${Number(count)}</span></span>`;
   }
 
   function pinHtml(postId, pinned) {
     return `<button type="button" class="ew-pin${pinned ? ' is-pinned' : ''}" data-post-id="${escapeHtml(postId)}" title="${pinned ? 'Unpin' : 'Pin'}"><i class="fas fa-thumbtack"></i></button>`;
   }
 
+  // Same icons Campuswire shows; it has none for unresolved questions.
+  function typeIconHtml(post) {
+    const icon = (title, name) => `<div class="post-type-icon" title="${title}"><i class="fas ${name}"></i></div>`;
+    if (post.note) return icon('This is a note', 'fa-pen');
+    if (post.answered) return icon('This question is resolved', 'fa-check');
+    return '';
+  }
+
   function itemHtml(post, view) {
     const number = Number(post.number) || 0;
-    const check = post.answered ? '<div class="post-type-icon"><i class="fas fa-check"></i></div>' : '';
+    const typeIcon = typeIconHtml(post);
     const count = view.count === null ? '' : countHtml(view.count);
     return (
       `<div role="button" tabindex="0" class="post-preview-wrapper d-flex align-items-start ew-item" data-number="${number}">` +
-      '<div class="post-preview">' +
-      `<div class="post-title d-flex justify-content-between"><h3>${escapeHtml(post.title)}</h3><span class="post-ref">#${number}</span>${pinHtml(post.id, view.pinned)}</div>` +
-      `<div class="post-text-wrap d-flex justify-content-between align-items-center"><div class="post-text">${escapeHtml(post.body)}</div>${check}</div>` +
-      `<div class="post-preview-footer d-flex align-items-center"><div class="post-time"><span class="post-likes"><i class="far fa-thumbs-up"></i>${Number(post.likesCount) || 0}</span><i class="far fa-clock"></i>${escapeHtml(view.time)}</div><div class="post-preview-stats">${count}</div></div>` +
+      '<div class="ew-avatar"></div><div class="post-preview">' +
+      `<div class="post-title d-flex justify-content-between"><h3>${escapeHtml(post.title)}</h3><span class="post-ref">#${number}</span></div>` +
+      `<div class="post-text-wrap d-flex justify-content-between align-items-center"><div class="post-text">${escapeHtml(post.body)}</div>${typeIcon}</div>` +
+      `<div class="post-preview-footer d-flex align-items-center"><div class="post-time"><span class="post-likes"><i class="far fa-thumbs-up"></i>${Number(post.likesCount) || 0}</span><i class="far fa-clock"></i>${escapeHtml(view.time)}${count}</div><div class="post-preview-stats">${pinHtml(post.id, view.pinned)}</div></div>` +
       '</div></div>'
     );
   }
@@ -68,17 +82,18 @@
       node = document.createTextNode('');
       clock.after(node);
     }
+    if (!('ewOriginal' in time.dataset)) time.dataset.ewOriginal = node.nodeValue; // for teardown()
     if (node.nodeValue !== text) node.nodeValue = text;
   }
 
-  function setCount(stats, count) {
-    const existing = stats.querySelector(':scope > .ew-count');
+  function setCount(time, count) {
+    const existing = time.querySelector(':scope > .ew-count');
     if (count === null) {
       if (existing) existing.remove();
       return;
     }
     if (!existing) {
-      stats.insertAdjacentHTML('beforeend', countHtml(count));
+      time.insertAdjacentHTML('beforeend', countHtml(count));
       return;
     }
     const label = existing.lastElementChild;
@@ -86,11 +101,11 @@
     if (label.textContent !== text) label.textContent = text;
   }
 
-  function setPin(title, postId, pinned) {
-    const existing = title.querySelector(':scope > .ew-pin');
+  function setPin(stats, postId, pinned) {
+    const existing = stats.querySelector(':scope > .ew-pin');
     if (!existing) {
-      title.insertAdjacentHTML('beforeend', pinHtml(postId, pinned));
-      const button = title.lastElementChild;
+      stats.insertAdjacentHTML('beforeend', pinHtml(postId, pinned));
+      const button = stats.lastElementChild;
       button.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation(); // don't let Campuswire open the post
@@ -109,37 +124,64 @@
     const ref = item.querySelector(SELECTORS.ref);
     const post = byNumber.get(postNumberFromRef(ref && ref.textContent));
     if (!post) return;
+    // Post numbers are per class: a title mismatch means our data is for another class, so leave the item alone.
+    const titleText = item.querySelector(SELECTORS.titleText);
+    if (titleText && !sameTitle(titleText.textContent, post.title)) return;
     const view = viewOf(post, state);
     const time = item.querySelector(SELECTORS.time);
-    if (time) setClockText(time, view.time);
+    if (time) {
+      if (view.time) setClockText(time, view.time);
+      setCount(time, view.count);
+    }
     const stats = item.querySelector(SELECTORS.stats);
-    if (stats) setCount(stats, view.count);
-    const title = item.querySelector(SELECTORS.title);
-    if (title) setPin(title, post.id, view.pinned);
+    if (stats) setPin(stats, post.id, view.pinned);
   }
 
-  function ensureToggle(wrap, state) {
-    let button = wrap.querySelector(':scope > .ew-toggle');
-    if (!button) {
-      const html = '<button type="button" class="btn btn-outline ew-toggle"><i class="far fa-clock"></i></button>';
-      const dropdown = wrap.querySelector(`:scope > ${SELECTORS.categoryDropdown}`);
-      if (dropdown) dropdown.insertAdjacentHTML('afterend', html);
-      else wrap.insertAdjacentHTML('beforeend', html);
-      button = wrap.querySelector(':scope > .ew-toggle');
-      button.addEventListener('click', (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        handlers.onToggleSorted();
-      });
+  // Picking "Recent activity" toggles the sort; picking any Campuswire filter turns it off so that filter applies.
+  function onMenuClick(event) {
+    const li = event.target.closest('li[data-content]');
+    if (!li) return;
+    if (!li.classList.contains('ew-recent')) {
+      handlers.onSortOff();
+      return;
     }
-    const className = state.sorted ? 'btn btn-outline ew-toggle is-on' : 'btn btn-outline ew-toggle';
-    if (button.className !== className) button.className = className;
-    const pressed = String(state.sorted);
-    if (button.getAttribute('aria-pressed') !== pressed) button.setAttribute('aria-pressed', pressed);
+    event.stopPropagation();
+    handlers.onToggleSorted();
+    const button = document.querySelector(SELECTORS.categoryButton);
+    if (button) button.click(); // closes Campuswire's menu
+  }
+
+  function ensureMenuItem(state) {
+    const menu = document.querySelector(SELECTORS.categoryMenu);
+    if (!menu) return;
+    let li = menu.querySelector(':scope > .ew-recent');
+    if (!li) {
+      const html = `<li data-content="true" class="ew-recent"><i class="far fa-clock"></i>${RECENT_LABEL}</li>`;
+      const header = menu.querySelector(':scope > .header');
+      if (header) header.insertAdjacentHTML('beforebegin', html);
+      else menu.insertAdjacentHTML('beforeend', html);
+      li = menu.querySelector(':scope > .ew-recent');
+      menu.addEventListener('click', onMenuClick, true); // same function, so re-adding is a no-op
+    }
+    const className = state.sorted ? 'ew-recent is-on' : 'ew-recent';
+    if (li.className !== className) li.className = className;
     const title = state.paused
       ? 'Activity data paused (Campuswire refused requests); showing cached data'
       : 'Sort all posts by latest post or reply';
-    if (button.title !== title) button.title = title;
+    if (li.title !== title) li.title = title;
+  }
+
+  // Shows "Recent activity" on Campuswire's dropdown button while sorted; restores its label otherwise.
+  function setCategoryLabel(button, sorted) {
+    const node = button.firstChild;
+    if (!node || node.nodeType !== Node.TEXT_NODE) return;
+    if (sorted) {
+      if (!('ewLabel' in button.dataset)) button.dataset.ewLabel = node.nodeValue;
+      if (node.nodeValue !== RECENT_LABEL) node.nodeValue = RECENT_LABEL;
+    } else if ('ewLabel' in button.dataset) {
+      node.nodeValue = button.dataset.ewLabel;
+      delete button.dataset.ewLabel;
+    }
   }
 
   function onRootClick(event) {
@@ -157,13 +199,20 @@
     if (item) handlers.onOpen(Number(item.dataset.number));
   }
 
+  function onRootKeydown(event) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    if (!event.target.matches('.ew-item, .ew-section')) return;
+    event.preventDefault();
+    onRootClick(event);
+  }
+
   function rootHtml(state) {
     const { sortByActivity } = root.EasywireActivity;
     const item = (post) => itemHtml(post, viewOf(post, state));
     let html = '';
     const pinned = sortByActivity(state.posts.filter((p) => state.pinnedIds.includes(p.id)), state.summaries);
     if (pinned.length) {
-      html += `<div class="filter-by d-flex align-items-center ew-section" role="button"><i class="fas fa-chevron-${state.collapsed ? 'right' : 'down'}"></i> My pins</div>`;
+      html += `<div class="filter-by d-flex align-items-center ew-section" role="button" tabindex="0"><i class="fas fa-chevron-${state.collapsed ? 'right' : 'down'}"></i> My pins</div>`;
       if (!state.collapsed) html += pinned.map(item).join('');
     }
     if (state.sorted && state.posts.length) {
@@ -179,6 +228,7 @@
       rootEl = document.createElement('div');
       rootEl.className = 'posts-list-wrap default-view ew-root';
       rootEl.addEventListener('click', onRootClick);
+      rootEl.addEventListener('keydown', onRootKeydown);
     }
     if (rootEl.nextElementSibling !== nativeList) nativeList.before(rootEl);
     const html = rootHtml(state);
@@ -192,20 +242,34 @@
   function render(state, nextHandlers) {
     handlers = nextHandlers;
     const nativeList = document.querySelector(SELECTORS.nativeList);
-    const categoryWrap = document.querySelector(SELECTORS.categoryWrap);
-    if (!nativeList || !categoryWrap) {
+    const categoryButton = document.querySelector(SELECTORS.categoryButton);
+    if (!nativeList || !categoryButton) {
       if (!warned && location.pathname.includes('/feed') && document.querySelector(SELECTORS.column)) {
         warned = true;
         console.warn('[easywire] Campuswire feed layout not recognized; easywire is inactive.');
       }
       return;
     }
-    ensureToggle(categoryWrap, state);
+    ensureMenuItem(state);
+    setCategoryLabel(categoryButton, state.sorted);
     const byNumber = new Map(state.posts.map((post) => [post.number, post]));
     for (const item of nativeList.querySelectorAll(SELECTORS.item)) decorateNative(item, byNumber, state);
     renderRoot(nativeList, state);
     const display = state.sorted && state.posts.length ? 'none' : '';
     if (nativeList.style.display !== display) nativeList.style.display = display;
+  }
+
+  // Undo everything render() added so the page looks like plain Campuswire.
+  function teardown() {
+    for (const el of document.querySelectorAll('.ew-root, .ew-recent, .ew-pin, .ew-count')) el.remove();
+    const categoryButton = document.querySelector(SELECTORS.categoryButton);
+    if (categoryButton) setCategoryLabel(categoryButton, false);
+    for (const time of document.querySelectorAll('[data-ew-original]')) {
+      setClockText(time, time.dataset.ewOriginal);
+      delete time.dataset.ewOriginal;
+    }
+    const nativeList = document.querySelector(SELECTORS.nativeList);
+    if (nativeList) nativeList.style.display = '';
   }
 
   function openPost(number) {
@@ -223,7 +287,7 @@
     if (slug) location.assign(`/c/${slug}/feed/${number}`);
   }
 
-  const api = { SELECTORS, render, openPost, postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml };
+  const api = { SELECTORS, render, teardown, openPost, postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.EasywireRender = api;
 })(globalThis);

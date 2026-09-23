@@ -16,14 +16,23 @@
   }
 
   function sortByActivity(posts, summaries) {
-    return [...posts].sort(
-      (a, b) => Date.parse(activityOf(b, summaries)) - Date.parse(activityOf(a, summaries)) || b.number - a.number
-    );
+    const time = (post) => {
+      const t = Date.parse(activityOf(post, summaries));
+      return Number.isFinite(t) ? t : -Infinity;
+    };
+    return [...posts].sort((a, b) => {
+      const ta = time(a);
+      const tb = time(b);
+      return ta === tb ? b.number - a.number : tb > ta ? 1 : -1;
+    });
   }
 
   // Same thresholds and rounding as moment.js fromNow(true), which Campuswire uses.
+  // Returns '' for a missing or unparseable date.
   function formatRelative(date, now) {
-    const ms = Math.max(0, now - (typeof date === 'number' ? date : Date.parse(date)));
+    const then = typeof date === 'number' ? date : Date.parse(date);
+    if (!Number.isFinite(then)) return '';
+    const ms = Math.max(0, now - then);
     const seconds = Math.round(ms / 1000);
     const minutes = Math.round(ms / 60000);
     const hours = Math.round(ms / 3600000);

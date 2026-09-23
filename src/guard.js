@@ -1,6 +1,9 @@
 (function (root) {
   const ID = '[A-Za-z0-9-]+';
-  const ALLOWED = new RegExp(`^https://api\\.campuswire\\.com/v1/group/${ID}/posts(?:\\?[^#]*|/${ID}/comments)?$`);
+  // Only the two query shapes fetcher.js builds: ?number=N and ?number=N&before=<encoded timestamp>.
+  const ALLOWED = new RegExp(
+    `^https://api\\.campuswire\\.com/v1/group/${ID}/posts(?:\\?number=\\d+(?:&before=[A-Za-z0-9%._-]+)?|/${ID}/comments)$`
+  );
   const FEED = new RegExp(`^https://api\\.campuswire\\.com/v1/group/(${ID})/posts(?:\\?([^#]*))?$`);
 
   function isApiUrl(url) {

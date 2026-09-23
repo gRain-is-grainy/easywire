@@ -20,7 +20,7 @@ function makePosts(n) {
 }
 
 function slim(p) {
-  return { id: p.id, number: p.number, title: p.title, body: p.body, publishedAt: p.publishedAt, likesCount: 0, answered: false };
+  return { id: p.id, number: p.number, title: p.title, body: p.body, publishedAt: p.publishedAt, likesCount: 0, answered: false, note: false };
 }
 
 // status: { urlSubstring: httpStatus } forces failures.
@@ -77,7 +77,7 @@ test('pages through every post with before= and summarizes each', async () => {
   assert.deepEqual(await fetcher.refresh(G, () => {}), { complete: true, paused: false });
 
   const lists = listUrls(api);
-  assert.equal(lists.length, 3);
+  assert.equal(lists.length, 4); // 20 + 20 + 5, then an empty page ends it
   assert.equal(lists[0], `https://api.campuswire.com/v1/group/${G}/posts?number=20`);
   assert.ok(lists[1].endsWith(`&before=${encodeURIComponent(posts[19].publishedAt)}`));
   assert.equal(commentUrls(api).length, 45);
@@ -229,4 +229,137 @@ test('a newer refresh makes the running one stale (class switch mid-fetch)', asy
   assert.deepEqual(await older, { stale: true });
   assert.deepEqual(await newer, { complete: true, paused: false });
   assert.equal(oldUpdates, 2);
+});
+
+test('a same-group refresh while one is running is ignored and keeps its progress', async () => {
+  const api = fakeApi({ posts: makePosts(10), delay: 2 });
+  let t = 0;
+  const fetcher = createFetcher({ request: api.request, storage: fakeStorage(), now: () => t });
+  let second;
+  let secondUpdates = 0;
+  let firstUpdates = 0;
+  const first = fetcher.refresh(G, () => {
+    if (++firstUpdates === 5) {
+      t = 61000;
+      second = fetcher.refresh(G, () => secondUpdates++);
+    }
+  });
+  assert.deepEqual(await first, { complete: true, paused: false });
+  assert.deepEqual(await second, { busy: true });
+  assert.equal(secondUpdates, 0);
+  assert.equal(commentUrls(api).length, 10);
+});
+
+test('summaries are saved during the comments pass, not only at the end', async () => {
+  const storage = fakeStorage();
+  let savedMidRun = null;
+  const fetcher = createFetcher({ request: fakeApi({ posts: makePosts(45) }).request, storage });
+  await fetcher.refresh(G, (cache) => {
+    if (Object.keys(cache.summaries).length === 25) {
+      savedMidRun = Object.keys(storage.data[`cache:${G}`].summaries).length;
+    }
+  });
+  assert.ok(savedMidRun >= 20, `saved ${savedMidRun} summaries by the 25th`);
+});
+
+test('a refresh within 60 s of the last one, even after a reload, shows cache without fetching', async () => {
+  const storage = fakeStorage();
+  let t = 0;
+  const now = () => t;
+  const api = fakeApi({ posts: makePosts(3) });
+  await createFetcher({ request: api.request, storage, now }).refresh(G, () => {});
+  const calls = api.calls.length;
+
+  t = 30000;
+  const seen = [];
+  const reloaded = createFetcher({ request: api.request, storage, now });
+  assert.deepEqual(await reloaded.refresh(G, (c) => seen.push(c)), { complete: false, paused: false });
+  assert.equal(api.calls.length, calls);
+  assert.equal(seen[0].posts.length, 3);
+
+  t = 61000;
+  assert.deepEqual(await reloaded.refresh(G, () => {}), { complete: true, paused: false });
+  assert.ok(api.calls.length > calls);
+});
+
+test('a 401/429 pause persists across reloads for 10 minutes', async () => {
+  const storage = fakeStorage();
+  let t = 0;
+  const now = () => t;
+  const failing = fakeApi({ posts: makePosts(3), status: { '?number=': 429 } });
+  assert.deepEqual(await createFetcher({ request: failing.request, storage, now }).refresh(G, () => {}), {
+    complete: false,
+    paused: true,
+  });
+
+  const api = fakeApi({ posts: makePosts(3) });
+  t = 5 * 60000;
+  assert.deepEqual(await createFetcher({ request: api.request, storage, now }).refresh('other', () => {}), {
+    complete: false,
+    paused: true,
+  });
+  assert.equal(api.calls.length, 0);
+
+  t = 11 * 60000;
+  assert.deepEqual(await createFetcher({ request: api.request, storage, now }).refresh(G, () => {}), {
+    complete: true,
+    paused: false,
+  });
+});
+
+test('an empty first page when posts are cached is incomplete and keeps the cache', async () => {
+  const initial = { posts: makePosts(3).map(slim), summaries: {} };
+  const storage = fakeStorage({ [`cache:${G}`]: initial });
+  const request = async () => ({ ok: true, status: 200, data: [] });
+  const fetcher = createFetcher({ request, storage });
+  assert.deepEqual(await fetcher.refresh(G, () => {}), { complete: false, paused: false });
+  assert.deepEqual(await fetcher.load(G), initial);
+});
+
+test('keeps paging when the server returns fewer posts per page than asked', async () => {
+  const posts = makePosts(45);
+  const request = async (url) => {
+    const u = new URL(url);
+    const before = u.searchParams.get('before');
+    return { ok: true, status: 200, data: posts.filter((p) => !before || p.publishedAt < before).slice(0, 15) };
+  };
+  const fetcher = createFetcher({ request, storage: fakeStorage() });
+  assert.deepEqual(await fetcher.refresh(G, () => {}), { complete: true, paused: false });
+  assert.equal((await fetcher.load(G)).posts.length, 45);
+});
+
+test('a crawl abandoned by a class switch does not throttle returning to that class', async () => {
+  const api = fakeApi({ posts: makePosts(10), delay: 2 });
+  const fetcher = createFetcher({ request: api.request, storage: fakeStorage() });
+  let updates = 0;
+  let toB;
+  const firstA = fetcher.refresh('A', () => {
+    if (++updates === 2) toB = fetcher.refresh('B', () => {});
+  });
+  assert.deepEqual(await firstA, { stale: true });
+  await toB;
+  assert.deepEqual(await fetcher.refresh('A', () => {}), { complete: true, paused: false });
+});
+
+test('cancel stops a running crawl and does not throttle the next refresh', async () => {
+  const api = fakeApi({ posts: makePosts(10), delay: 2 });
+  const fetcher = createFetcher({ request: api.request, storage: fakeStorage() });
+  let updates = 0;
+  const running = fetcher.refresh(G, () => {
+    if (++updates === 2) fetcher.cancel();
+  });
+  assert.deepEqual(await running, { stale: true });
+  assert.ok(commentUrls(api).length < 10);
+  assert.deepEqual(await fetcher.refresh(G, () => {}), { complete: true, paused: false });
+});
+
+test('slim posts record whether a post is a note', async () => {
+  const [note, question] = makePosts(2);
+  note.type = 'note';
+  question.type = 'question';
+  const fetcher = createFetcher({ request: fakeApi({ posts: [note, question] }).request, storage: fakeStorage() });
+  await fetcher.refresh(G, () => {});
+  const [a, b] = (await fetcher.load(G)).posts;
+  assert.equal(a.note, true);
+  assert.equal(b.note, false);
 });
