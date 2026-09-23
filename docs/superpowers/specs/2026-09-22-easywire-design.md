@@ -11,6 +11,7 @@ A personal Chrome extension that makes the Campuswire class feed easier to follo
 2. Each feed item shows its **reply count**, in the same style as the time.
 3. A **"Recent activity"** toggle sorts the whole feed by latest activity.
 4. **Personal pins**: pin any post; pinned posts appear in a "My pins" section at the top of the feed.
+5. An **on/off switch** in the toolbar popup.
 
 For personal use only (loaded unpacked, not published). Target: Chromium browsers (Chrome/Edge/Brave), Manifest V3.
 
@@ -56,6 +57,7 @@ Plain JavaScript, no build step, no runtime dependencies.
 | `src/pins.js` | content script | Pins in `chrome.storage.sync` as `{ pins: { [groupId]: [postId, …] } }`. `list(groupId)`, `toggle(groupId, postId)`, `prune(groupId, existingIds)`. |
 | `src/render.js` | content script | Decorates native feed items, draws "My pins" section and the sorted list, the toggle. All DOM selectors in one `SELECTORS` object. |
 | `src/content.js` | content script | Wires everything: receives messages from `page-hook`, observes the feed with a `MutationObserver`, detects group changes from the URL, triggers fetch/render. |
+| `src/popup/` | extension popup | `popup.html` + `popup.js`: the on/off checkbox (`enabled` in `chrome.storage.local`). |
 | `src/styles.css` | — | Minimal extra styles (pin icon, toggle, section header); otherwise reuse Campuswire classes. |
 | `tests/*.test.js` | Node `node --test` | Unit tests for `activity.js`, `pins.js`, `guard.js`, `fetcher.js` (storage/network stubbed), `page-hook.js` (in a `vm` sandbox with fake fetch/XHR), and `render.js` pure helpers. |
 
@@ -90,6 +92,11 @@ Plain JavaScript, no build step, no runtime dependencies.
 - A pin icon on each feed item (native and ours): visible on hover, always visible when pinned. Click toggles the pin and does not open the post.
 - A collapsible "My pins" section at the top of the feed list in both modes, sorted by `lastActivityAt` desc, same item rendering.
 - Pins are per class, stored in `chrome.storage.sync`. After a full fetch, pinned ids not found in the class's posts are pruned; an empty post list for a class with cached posts counts as a failed fetch and prunes nothing. If sync storage is full, the user is told the pin was not saved.
+
+### Feature 5 — on/off switch
+
+- Clicking the toolbar icon opens a popup with one checkbox, stored as `enabled` in `chrome.storage.local` (default on). Takes effect immediately in open tabs.
+- **Off:** no fetching (a running crawl is cancelled) and every easywire addition is removed; native clock text is restored. `page-hook.js` still loads but only answers our requests.
 
 ## Error handling
 
