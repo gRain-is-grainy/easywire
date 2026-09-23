@@ -38,3 +38,8 @@
 .ew-root[hidden] {
   display: none;
 }
+/* Stands in for Campuswire's 24px avatar column so our cards line up with native ones. */
+.ew-avatar {
+  flex: none;
+  width: 24px;
+}

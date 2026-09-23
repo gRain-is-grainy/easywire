@@ -48,7 +48,7 @@
     const count = view.count === null ? '' : countHtml(view.count);
     return (
       `<div role="button" tabindex="0" class="post-preview-wrapper d-flex align-items-start ew-item" data-number="${number}">` +
-      '<div class="post-preview">' +
+      '<div class="ew-avatar"></div><div class="post-preview">' +
       `<div class="post-title d-flex justify-content-between"><h3>${escapeHtml(post.title)}</h3><span class="post-ref">#${number}</span></div>` +
       `<div class="post-text-wrap d-flex justify-content-between align-items-center"><div class="post-text">${escapeHtml(post.body)}</div>${check}</div>` +
       `<div class="post-preview-footer d-flex align-items-center"><div class="post-time"><span class="post-likes"><i class="far fa-thumbs-up"></i>${Number(post.likesCount) || 0}</span><i class="far fa-clock"></i>${escapeHtml(view.time)}${count}</div><div class="post-preview-stats">${pinHtml(post.id, view.pinned)}</div></div>` +
