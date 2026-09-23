@@ -11,6 +11,7 @@
     stats: '.post-preview-stats',
   };
   const RECENT_LABEL = 'Recent activity';
+  const ANONYMOUS_IMG = 'https://static.campuswire.com/images/anonymous-img.svg'; // Campuswire's own anonymous icon
   let handlers = null;
   let warned = false;
 
@@ -50,13 +51,24 @@
     return '';
   }
 
+  // Campuswire's avatar markup. Every named user has a photo, so no photo means an anonymous post.
+  function avatarHtml(post, status) {
+    const name = escapeHtml(post.authorName || '');
+    const img = post.authorPhoto
+      ? `<img alt="${name}" src="${escapeHtml(post.authorPhoto)}">`
+      : `<img alt="Anonymous user" src="${ANONYMOUS_IMG}">`;
+    const statusClass = status === 'active' ? 'online' : escapeHtml(status || 'offline'); // same mapping as Campuswire
+    return `<div title="${name || 'Anonymous'}"><div class="user-img-wrap"><div class="img-wrap">${img}</div><span class="user-status ${statusClass}"></span></div></div>`;
+  }
+
   function itemHtml(post, view) {
     const number = Number(post.number) || 0;
     const typeIcon = typeIconHtml(post);
     const count = view.count === null ? '' : countHtml(view.count);
+    const unread = post.read === false ? ' unread' : ''; // cached posts from before we stored `read` count as read
     return (
-      `<div role="button" tabindex="0" class="post-preview-wrapper d-flex align-items-start ew-item" data-number="${number}">` +
-      '<div class="ew-avatar"></div><div class="post-preview">' +
+      `<div role="button" tabindex="0" class="post-preview-wrapper d-flex align-items-start ew-item${unread}" data-number="${number}">` +
+      `${avatarHtml(post, view.status)}<div class="post-preview">` +
       `<div class="post-title d-flex justify-content-between"><h3>${escapeHtml(post.title)}</h3><span class="post-ref">#${number}</span></div>` +
       `<div class="post-text-wrap d-flex justify-content-between align-items-center"><div class="post-text">${escapeHtml(post.body)}</div>${typeIcon}</div>` +
       `<div class="post-preview-footer d-flex align-items-center"><div class="post-time"><span class="post-likes"><i class="far fa-thumbs-up"></i>${Number(post.likesCount) || 0}</span><i class="far fa-clock"></i>${escapeHtml(view.time)}${count}</div><div class="post-preview-stats">${pinHtml(post.id, view.pinned)}</div></div>` +
@@ -71,6 +83,7 @@
       time: formatRelative(activityOf(post, state.summaries), state.now),
       count: summary ? summary.replyCount : null,
       pinned: state.pinnedIds.includes(post.id),
+      status: state.presence[post.authorId],
     };
   }
 
@@ -120,7 +133,16 @@
     if (existing.title !== label) existing.title = label;
   }
 
+  // Campuswire renders anonymous authors as an <img> with no src (a blank spot); fill in its own anonymous icon.
+  function fillAnonymousAvatar(item) {
+    const img = item.querySelector('.user-img-wrap img:not([src])');
+    if (!img) return;
+    img.src = ANONYMOUS_IMG;
+    img.dataset.ewAnonymous = ''; // for teardown()
+  }
+
   function decorateNative(item, byNumber, state) {
+    fillAnonymousAvatar(item);
     const ref = item.querySelector(SELECTORS.ref);
     const post = byNumber.get(postNumberFromRef(ref && ref.textContent));
     if (!post) return;
@@ -268,6 +290,10 @@
       setClockText(time, time.dataset.ewOriginal);
       delete time.dataset.ewOriginal;
     }
+    for (const img of document.querySelectorAll('img[data-ew-anonymous]')) {
+      img.removeAttribute('src');
+      delete img.dataset.ewAnonymous;
+    }
     const nativeList = document.querySelector(SELECTORS.nativeList);
     if (nativeList) nativeList.style.display = '';
   }
@@ -287,7 +313,7 @@
     if (slug) location.assign(`/c/${slug}/feed/${number}`);
   }
 
-  const api = { SELECTORS, render, teardown, openPost, postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle };
+  const api = { SELECTORS, ANONYMOUS_IMG, render, teardown, openPost, postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.EasywireRender = api;
 })(globalThis);

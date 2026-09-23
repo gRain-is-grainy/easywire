@@ -12,6 +12,7 @@
     collapsed: false,
     paused: false,
     enabled: false, // set from storage at startup; the toolbar popup flips it
+    presence: {}, // userId -> status, from Campuswire's own traffic via page-hook.js
   };
   let feedGroupId = null; // last class Campuswire's feed loaded, so switching on can fetch it
 
@@ -46,6 +47,9 @@
     } else if (data.type === 'feed') {
       feedGroupId = data.groupId;
       if (state.enabled) onFeed(data.groupId);
+    } else if (data.type === 'presence') {
+      Object.assign(state.presence, data.statuses);
+      schedule();
     }
   });
 
@@ -129,6 +133,7 @@
           sorted: state.sorted,
           collapsed: state.collapsed,
           paused: state.paused,
+          presence: state.presence,
           now: Date.now(),
         },
         handlers

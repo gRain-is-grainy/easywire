@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle } = require('../src/render.js');
+const { postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle, ANONYMOUS_IMG } = require('../src/render.js');
 
 test('postNumberFromRef', () => {
   assert.equal(postNumberFromRef('#40'), 40);
@@ -73,12 +73,36 @@ test('itemHtml puts the reply count right after the time', () => {
   assert.ok(/2 days<span class="ew-count">.*?<span>7<\/span><\/span><\/div>/.test(html));
 });
 
-test('itemHtml has an avatar-width column before the post, like Campuswire cards', () => {
-  const html = itemHtml(
-    { id: 'p5', number: 5, title: 't', body: 'b', likesCount: 0, answered: false },
-    { time: '2 days', count: null, pinned: false }
+test('itemHtml shows the author avatar with their presence, like Campuswire cards', () => {
+  const view = { time: '2 days', count: null, pinned: false, status: 'active' };
+  const named = itemHtml({ id: 'p5', number: 5, title: 't', body: 'b', likesCount: 0, authorName: 'Raj "V"', authorPhoto: 'https://x/a.png' }, view);
+  assert.ok(
+    named.includes(
+      'ew-item" data-number="5"><div title="Raj &quot;V&quot;"><div class="user-img-wrap"><div class="img-wrap"><img alt="Raj &quot;V&quot;" src="https://x/a.png"></div><span class="user-status online"></span></div></div><div class="post-preview">'
+    )
   );
-  assert.ok(/ew-item" data-number="5"><div class="ew-avatar"><\/div><div class="post-preview">/.test(html));
+  const away = itemHtml({ id: 'p7', number: 7, title: 't', body: 'b', likesCount: 0, authorName: 'A', authorPhoto: 'https://x/a.png' }, { ...view, status: 'away' });
+  assert.ok(away.includes('<span class="user-status away"></span>'));
+  const unknown = itemHtml({ id: 'p8', number: 8, title: 't', body: 'b', likesCount: 0, authorName: 'A', authorPhoto: 'https://x/a.png' }, { ...view, status: undefined });
+  assert.ok(unknown.includes('<span class="user-status offline"></span>'));
+});
+
+test("itemHtml shows Campuswire's anonymous icon for anonymous posts", () => {
+  const view = { time: '2 days', count: null, pinned: false };
+  const anonymous = itemHtml({ id: 'p6', number: 6, title: 't', body: 'b', likesCount: 0, authorName: '', authorPhoto: '' }, view);
+  assert.ok(
+    anonymous.includes(
+      `<div title="Anonymous"><div class="user-img-wrap"><div class="img-wrap"><img alt="Anonymous user" src="${ANONYMOUS_IMG}"></div><span class="user-status offline"></span></div></div>`
+    )
+  );
+});
+
+test('itemHtml marks unread posts like Campuswire, and treats a missing read flag as read', () => {
+  const view = { time: '2 days', count: null, pinned: false };
+  const base = { id: 'u', number: 7, title: 't', body: 'b', likesCount: 0 };
+  assert.ok(itemHtml({ ...base, read: false }, view).includes('class="post-preview-wrapper d-flex align-items-start ew-item unread"'));
+  assert.ok(!itemHtml({ ...base, read: true }, view).includes('unread'));
+  assert.ok(!itemHtml(base, view).includes('unread'));
 });
 
 test('itemHtml shows the same type icon as Campuswire: pen for notes, check for resolved questions', () => {

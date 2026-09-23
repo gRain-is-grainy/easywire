@@ -19,8 +19,33 @@ function loadHook() {
   class FakeXHR {
     open() {}
     setRequestHeader() {}
+    addEventListener(type, fn) {
+      (this.listeners ||= {})[type] = fn;
+    }
     send() {
       xhrSent.push(this);
+    }
+    // Test helper: the server answers.
+    respond(status, body) {
+      this.status = status;
+      this.responseText = JSON.stringify(body);
+      if (this.listeners && this.listeners.load) this.listeners.load.call(this);
+    }
+  }
+
+  const sockets = [];
+  class FakeWebSocket {
+    constructor(url) {
+      this.url = url;
+      this.listeners = [];
+      sockets.push(this);
+    }
+    addEventListener(type, fn) {
+      if (type === 'message') this.listeners.push(fn);
+    }
+    // Test helper: a frame arrives.
+    receive(data) {
+      this.listeners.forEach((fn) => fn({ data }));
     }
   }
 
@@ -30,6 +55,7 @@ function loadHook() {
     Request,
     Headers,
     XMLHttpRequest: FakeXHR,
+    WebSocket: FakeWebSocket,
     location: { href: 'https://campuswire.com/c/X/feed', origin: 'https://campuswire.com' },
     fetch: async (input, init) => {
       fetches.push({ input, init });
@@ -55,8 +81,14 @@ function loadHook() {
     await tick();
     return fromHook().filter((m) => m.type === 'response').at(-1);
   };
-  return { win, fetches, fromHook, ask, xhrSent };
+  const hello = async () => {
+    listeners.forEach((fn) => fn({ source: page, data: { source: 'easywire', type: 'hello' } }));
+    await tick();
+  };
+  return { win, fetches, fromHook, ask, hello, xhrSent, sockets };
 }
+
+const presenceMessages = (hook) => hook.fromHook().filter((m) => m.type === 'presence');
 
 test('refuses to fetch before the auth header is seen', async () => {
   const hook = loadHook();
@@ -120,4 +152,46 @@ test('a failure inside the XHR hook never blocks the page request', async () => 
   xhr.open('GET', FEED);
   assert.doesNotThrow(() => xhr.send());
   assert.equal(hook.xhrSent.length, 1);
+});
+
+test("reads who's online from Campuswire's own member lookup", async () => {
+  const hook = loadHook();
+  const xhr = new hook.win.XMLHttpRequest();
+  xhr.open('POST', 'https://api.campuswire.com/v1/users');
+  xhr.send();
+  xhr.respond(200, [
+    { id: 'u1', presence: { status: 'active' } },
+    { id: 'u2', presence: { status: 'offline' } },
+    { id: 'u3' },
+  ]);
+  assert.deepEqual(presenceMessages(hook).at(-1).statuses, { u1: 'active', u2: 'offline' });
+
+  const failed = new hook.win.XMLHttpRequest();
+  failed.open('POST', 'https://api.campuswire.com/v1/users');
+  failed.send();
+  failed.respond(500, { error: 'x' });
+  assert.equal(presenceMessages(hook).length, 1);
+});
+
+test("follows presence-changed events on Campuswire's socket and ignores other frames", () => {
+  const hook = loadHook();
+  const socket = new hook.win.WebSocket('wss://example');
+  assert.ok(socket instanceof hook.win.WebSocket);
+  socket.receive(JSON.stringify({ event: 'presence-changed', data: { user: { id: 'u1', presence: { status: 'active' } } } }));
+  socket.receive(JSON.stringify({ event: 'world', replyTo: 1 }));
+  socket.receive('not json');
+  socket.receive(new ArrayBuffer(4));
+  assert.deepEqual(
+    presenceMessages(hook).map((m) => m.statuses),
+    [{ u1: 'active' }]
+  );
+});
+
+test('hello replays every status seen so far', async () => {
+  const hook = loadHook();
+  const socket = new hook.win.WebSocket('wss://example');
+  socket.receive(JSON.stringify({ event: 'presence-changed', data: { user: { id: 'u1', presence: { status: 'active' } } } }));
+  socket.receive(JSON.stringify({ event: 'presence-changed', data: { user: { id: 'u2', presence: { status: 'away' } } } }));
+  await hook.hello();
+  assert.deepEqual(presenceMessages(hook).at(-1).statuses, { u1: 'active', u2: 'away' });
 });
