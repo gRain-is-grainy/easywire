@@ -22,6 +22,14 @@ test('summarize: comment older than post keeps post time; missing createdAt stil
   assert.deepEqual(summarize(post, comments), { replyCount: 2, lastActivityAt: '2026-09-20T01:29:23.600Z' });
 });
 
+test('summarize: unparseable post time falls back to comment time, or null with no comments (no throw)', () => {
+  assert.deepEqual(summarize({ publishedAt: undefined }, [{ createdAt: '2026-09-21T00:00:00Z' }]), {
+    replyCount: 1,
+    lastActivityAt: '2026-09-21T00:00:00.000Z',
+  });
+  assert.deepEqual(summarize({ publishedAt: undefined }, []), { replyCount: 0, lastActivityAt: null });
+});
+
 test('activityOf: summary when present, else publishedAt', () => {
   const summaries = { p1: { replyCount: 1, lastActivityAt: '2026-09-22T00:00:00.000Z' } };
   assert.equal(activityOf(post, summaries), '2026-09-22T00:00:00.000Z');
