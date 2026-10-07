@@ -8,7 +8,7 @@ Latest-activity times, reply counts, a "Recent activity" sort, and personal pins
 
 [![Chrome MV3](https://img.shields.io/badge/Chrome-Manifest_V3-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white)](manifest.json)
 [![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)](src)
-[![Node Test Runner](https://img.shields.io/badge/node_--test-73_passing-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](tests)
+[![Node Test Runner](https://img.shields.io/badge/node_--test-88_passing-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](tests)
 [![Zero Dependencies](https://img.shields.io/badge/Dependencies-0-555555?style=for-the-badge)](#architecture)
 
 [Features](#features) · [How it stays read-only](#how-it-stays-read-only) · [Architecture](#architecture) · [Getting Started](#getting-started)
@@ -39,7 +39,9 @@ easywire fetches the replies for every post in the class, works out each post's 
 - **Self-cleaning** —> pins for deleted posts are pruned, but only after a *complete* refresh, so a failed request never wipes them
 
 ### Export
-- **Copy the whole class** —> an "Export" item under "Recent activity" copies every post and its full reply thread as plain text, ready to paste into an AI chat
+- **Copy the whole class** —> an "Export" item under "Recent activity" copies every post (or a date range, or picked posts) with its full reply thread as plain text, ready to paste into an AI chat
+- **Date range** —> with nothing selected, Export opens a dialog: pick "published between" dates (both optional) and export just those posts, e.g. everything since the last quiz
+- **Pick posts** —> "Select posts" puts a checkbox on every card, Campuswire's own included, so you can use its category filter while picking; copy them from the bar or the Export item
 - **No extra requests** —> threads are saved during the normal crawl, so the copy is instant; posts whose replies haven't loaded yet are marked
 
 ### Well-behaved

@@ -2,7 +2,7 @@
   const { createFetcher } = globalThis.EasywireFetcher;
   const { createPins } = globalThis.EasywirePins;
   const Render = globalThis.EasywireRender;
-  const { formatExport } = globalThis.EasywireExport;
+  const { formatExport, filterPosts } = globalThis.EasywireExport;
   const REQUEST_TIMEOUT_MS = 15 * 1000;
 
   const state = {
@@ -16,8 +16,14 @@
     presence: {}, // userId -> status, from Campuswire's own traffic via page-hook.js
     unreadCounts: {}, // conversationId -> unread comments, from Campuswire's socket snapshot via page-hook.js
     exportStatus: '', // shown in place of "Export" for a moment after a copy
+    exportOpen: false, // the Export modal
+    exportRange: { from: '', to: '' }, // its dates, remembered while the page is open
+    exportModalStatus: '', // replaces "Export all N" for a moment after a copy
+    selecting: false,
+    selectedIds: [], // in memory only; separate from pins
+    selectStatus: '', // replaces "Copy N posts" for a moment after a copy
   };
-  let exportTimer = null;
+  let exportTimer = null, modalTimer = null, selectTimer = null;
   let feedGroupId = null; // last class Campuswire's feed loaded, so switching on can fetch it
 
   // --- bridge to page-hook.js (MAIN world) ---
@@ -57,6 +63,8 @@
     } else if (data.type === 'unread') {
       state.unreadCounts = data.counts;
       schedule();
+    } else if (data.type === 'post-deleted') {
+      onPostDeleted(data.groupId, data.postId);
     }
   });
 
@@ -68,6 +76,8 @@
       state.groupId = groupId;
       state.cache = { posts: [], summaries: {} };
       state.pinnedIds = [];
+      closeExport();
+      endSelect();
       state.pinnedIds = await pins.list(groupId);
     }
     if (!state.enabled) return; // switched off while pins loaded
@@ -86,8 +96,53 @@
     schedule();
   }
 
+  // Campuswire drops its own card on its socket's wall-post-deleted event; without this ours stayed until a reload.
+  function onPostDeleted(groupId, postId) {
+    fetcher.remove(groupId, postId).catch((error) => console.warn('[easywire] Could not forget deleted post:', error));
+    if (groupId !== state.groupId) return;
+    const { [postId]: _, ...summaries } = state.cache.summaries;
+    state.cache = { posts: state.cache.posts.filter((post) => post.id !== postId), summaries };
+    schedule();
+  }
+
   function saveUi() {
     chrome.storage.local.set({ ui: { sorted: state.sorted, collapsed: state.collapsed } });
+  }
+
+  // Copies from stored threads only; nothing is fetched, so the click still counts as a user gesture.
+  async function copyPosts(posts, scope) {
+    const threads = await fetcher.loadThreads(state.groupId);
+    const { text, postCount, missingCount } = formatExport(posts, threads, Date.now(), scope);
+    try {
+      await navigator.clipboard.writeText(text);
+      return `Copied ${postCount} post${postCount === 1 ? '' : 's'}` + (missingCount ? ` (${missingCount} without replies)` : '');
+    } catch (error) {
+      console.warn('[easywire] Could not copy export:', error);
+      return 'Copy failed';
+    }
+  }
+
+  function flashExportStatus(text) {
+    state.exportStatus = text;
+    schedule();
+    clearTimeout(exportTimer);
+    exportTimer = setTimeout(() => {
+      state.exportStatus = '';
+      schedule();
+    }, 2500);
+  }
+
+  function closeExport() {
+    clearTimeout(modalTimer);
+    state.exportOpen = false;
+    state.exportModalStatus = '';
+  }
+
+  function endSelect() {
+    clearTimeout(selectTimer);
+    state.selecting = false;
+    state.selectedIds = [];
+    state.selectStatus = '';
   }
 
   const handlers = {
@@ -123,25 +178,70 @@
     onOpen(number) {
       Render.openPost(number);
     },
-    // Copies from stored threads only; nothing is fetched, so the click still counts as a user gesture.
-    async onExport() {
-      const groupId = state.groupId;
-      if (!groupId) return;
-      const threads = await fetcher.loadThreads(groupId);
-      const { text, postCount, missingCount } = formatExport(state.cache.posts, threads, Date.now());
-      try {
-        await navigator.clipboard.writeText(text);
-        state.exportStatus = `Copied ${postCount} posts` + (missingCount ? ` (${missingCount} without replies)` : '');
-      } catch (error) {
-        console.warn('[easywire] Could not copy export:', error);
-        state.exportStatus = 'Copy failed';
+    // Returns true when the menu should stay open to show a status.
+    onExport() {
+      if (!state.groupId) return true;
+      const selected = filterPosts(state.cache.posts, { selectedIds: state.selectedIds });
+      if (selected.length) {
+        copyPosts(selected, { selected: true }).then((status) => {
+          endSelect();
+          flashExportStatus(status);
+        });
+        return true;
       }
+      if (state.selecting) {
+        flashExportStatus('No posts selected');
+        return true;
+      }
+      state.exportOpen = true;
       schedule();
-      clearTimeout(exportTimer);
-      exportTimer = setTimeout(() => {
-        state.exportStatus = '';
+      return false;
+    },
+    onExportDates(from, to) {
+      state.exportRange = { from, to };
+      schedule();
+    },
+    async onExportAll() {
+      if (state.exportModalStatus) return;
+      const { from, to } = state.exportRange;
+      const posts = filterPosts(state.cache.posts, { from, to });
+      if (!posts.length) return;
+      state.exportModalStatus = await copyPosts(posts, from || to ? { from, to } : undefined);
+      schedule();
+      modalTimer = setTimeout(() => {
+        closeExport();
         schedule();
-      }, 2500);
+      }, 1500);
+    },
+    onCloseExport() {
+      closeExport();
+      schedule();
+    },
+    onStartSelect() {
+      closeExport();
+      state.selecting = true;
+      state.selectedIds = [];
+      schedule();
+    },
+    onToggleSelect(postId) {
+      if (!state.selecting || state.selectStatus || !postId) return;
+      state.selectedIds = state.selectedIds.includes(postId) ? state.selectedIds.filter((id) => id !== postId) : [...state.selectedIds, postId];
+      schedule();
+    },
+    async onCopySelected() {
+      if (state.selectStatus) return;
+      const posts = filterPosts(state.cache.posts, { selectedIds: state.selectedIds });
+      if (!posts.length) return;
+      state.selectStatus = await copyPosts(posts, { selected: true });
+      schedule();
+      selectTimer = setTimeout(() => {
+        endSelect();
+        schedule();
+      }, 1500);
+    },
+    onCancelSelect() {
+      endSelect();
+      schedule();
     },
   };
 
@@ -163,6 +263,10 @@
           presence: state.presence,
           unreadCounts: state.unreadCounts,
           exportStatus: state.exportStatus,
+          exportModal: state.exportOpen ? { ...state.exportRange, status: state.exportModalStatus } : null,
+          selecting: state.selecting,
+          selectedIds: state.selectedIds,
+          selectStatus: state.selectStatus,
           now: Date.now(),
         },
         handlers
@@ -190,6 +294,8 @@
       schedule();
     } else {
       fetcher.cancel();
+      closeExport();
+      endSelect();
       Render.teardown();
     }
   }

@@ -15,6 +15,7 @@
   const ANONYMOUS_IMG = 'https://static.campuswire.com/images/anonymous-img.svg'; // Campuswire's own anonymous icon
   let handlers = null;
   let warned = false;
+  let selecting = false; // mirrors state.selecting for the document-level handlers below
 
   function postNumberFromRef(text) {
     const match = /#(\d+)/.exec(text || '');
@@ -44,6 +45,50 @@
     return `<button type="button" class="ew-pin${pinned ? ' is-pinned' : ''}" data-post-id="${escapeHtml(postId)}" title="${pinned ? 'Unpin' : 'Pin'}"><i class="fas fa-thumbtack"></i></button>`;
   }
 
+  // Campuswire's own checkbox. Out of the tab order: the card itself is the control while selecting.
+  function selectHtml(post, selected) {
+    const id = escapeHtml(post.id);
+    return `<div class="custom-control custom-checkbox ew-select"><input type="checkbox" class="custom-control-input" tabindex="-1" data-post-id="${id}" aria-label="Select post #${Number(post.number) || 0}"${selected ? ' checked' : ''}><label class="custom-control-label"></label></div>`;
+  }
+
+  const plural = (count) => `${count} post${count === 1 ? '' : 's'}`;
+
+  function selectBarHtml({ count, status }) {
+    return (
+      '<div class="ew-select-bar d-flex align-items-center">' +
+      `<span class="ew-select-count">${count} selected</span>` +
+      '<button type="button" class="btn btn-outline ew-select-cancel">Cancel</button>' +
+      `<button type="button" class="btn btn-primary ew-select-copy"${count ? '' : ' disabled'}>${escapeHtml(status || `Copy ${plural(count)}`)}</button>` +
+      '</div>'
+    );
+  }
+
+  // Built once per opening; only the count line and the Export all button change afterwards, so typing a date isn't interrupted.
+  const EXPORT_MODAL_HTML =
+    '<div class="modal-backdrop show"></div>' +
+    '<div class="modal show ew-export-modal" role="dialog" aria-modal="true" aria-labelledby="ew-export-title" tabindex="-1">' +
+    '<div class="modal-dialog modal-dialog-centered"><div class="modal-content">' +
+    '<div class="modal-header d-flex justify-content-between"><h5 class="modal-title" id="ew-export-title">Export posts</h5>' +
+    '<button type="button" class="icon-btn ew-export-close" aria-label="Close"><i class="fas fa-times"></i></button></div>' +
+    '<div class="modal-body"><div class="ew-export-label">Published between (optional)</div>' +
+    '<div class="ew-export-dates d-flex align-items-center">' +
+    '<input type="date" class="form-control" id="ew-export-from" aria-label="From date">' +
+    '<span>and</span>' +
+    '<input type="date" class="form-control" id="ew-export-to" aria-label="To date">' +
+    '</div><div class="ew-export-count" aria-live="polite"></div></div>' +
+    '<div class="modal-footer d-flex justify-content-end">' +
+    '<button type="button" class="btn btn-outline ew-export-select">Select posts</button>' +
+    '<button type="button" class="btn btn-primary ew-export-all"></button>' +
+    '</div></div></div></div>';
+
+  function exportModalView({ total, matching, invalid, status }) {
+    return {
+      countText: invalid ? 'Start date is after end date' : `${matching} of ${plural(total)}`,
+      allLabel: status || (matching ? `Export all ${matching}` : 'No posts in range'),
+      allDisabled: Boolean(status) || !matching,
+    };
+  }
+
   // Same icons Campuswire shows; it has none for unresolved questions.
   function typeIconHtml(post) {
     const icon = (title, name) => `<div class="post-type-icon" title="${title}"><i class="fas ${name}"></i></div>`;
@@ -67,13 +112,14 @@
     const typeIcon = typeIconHtml(post);
     const count = view.count === null ? '' : countHtml(view.count);
     const unread = view.unread ? ' unread' : '';
+    const selected = view.selecting && view.selected ? ' ew-selected' : '';
     const badge = view.badge ? `<div class="unread-badge">${escapeHtml(view.badge)}</div>` : '';
     return (
-      `<div role="button" tabindex="0" class="post-preview-wrapper d-flex align-items-start ew-item${unread}" data-number="${number}">` +
+      `<div role="button" tabindex="0" class="post-preview-wrapper d-flex align-items-start ew-item${unread}${selected}" data-number="${number}">` +
       `${avatarHtml(post, view.status)}<div class="post-preview">` +
       `<div class="post-title d-flex justify-content-between"><h3>${escapeHtml(post.title)}</h3><span class="post-ref">#${number}</span></div>` +
       `<div class="post-text-wrap d-flex justify-content-between align-items-center"><div class="post-text">${escapeHtml(post.body)}</div>${typeIcon}</div>` +
-      `<div class="post-preview-footer d-flex align-items-center"><div class="post-time"><span class="post-likes"><i class="far fa-thumbs-up"></i>${Number(post.likesCount) || 0}</span><i class="far fa-clock"></i>${escapeHtml(view.time)}${count}</div><div class="post-preview-stats">${badge}${pinHtml(post.id, view.pinned)}</div></div>` +
+      `<div class="post-preview-footer d-flex align-items-center"><div class="post-time"><span class="post-likes"><i class="far fa-thumbs-up"></i>${Number(post.likesCount) || 0}</span><i class="far fa-clock"></i>${escapeHtml(view.time)}${count}</div><div class="post-preview-stats">${badge}${view.selecting ? selectHtml(post, view.selected) : pinHtml(post.id, view.pinned)}</div></div>` +
       '</div></div>'
     );
   }
@@ -98,6 +144,8 @@
       count: summary ? summary.replyCount : null,
       pinned: state.pinnedIds.includes(post.id),
       status: state.presence[post.authorId],
+      selecting: state.selecting,
+      selected: state.selectedIds.includes(post.id),
     };
   }
 
@@ -129,6 +177,8 @@
   }
 
   function setPin(stats, postId, pinned) {
+    const box = stats.querySelector(':scope > .ew-select');
+    if (box) box.remove();
     const existing = stats.querySelector(':scope > .ew-pin');
     if (!existing) {
       stats.insertAdjacentHTML('beforeend', pinHtml(postId, pinned));
@@ -145,6 +195,18 @@
     if (existing.dataset.postId !== postId) existing.dataset.postId = postId;
     const label = pinned ? 'Unpin' : 'Pin';
     if (existing.title !== label) existing.title = label;
+  }
+
+  function setSelect(stats, post, selected) {
+    const pin = stats.querySelector(':scope > .ew-pin');
+    if (pin) pin.remove();
+    let box = stats.querySelector(':scope > .ew-select');
+    if (!box) {
+      stats.insertAdjacentHTML('beforeend', selectHtml(post, selected));
+      box = stats.lastElementChild;
+    }
+    const input = box.querySelector('input');
+    if (input.checked !== selected) input.checked = selected;
   }
 
   // Campuswire renders anonymous authors as an <img> with no src (a blank spot); fill in its own anonymous icon.
@@ -172,7 +234,29 @@
       setCount(time, view.count);
     }
     const stats = item.querySelector(SELECTORS.stats);
-    if (stats) setPin(stats, post.id, view.pinned);
+    if (stats) {
+      if (view.selecting) setSelect(stats, post, view.selected);
+      else setPin(stats, post.id, view.pinned);
+    }
+    const tinted = Boolean(view.selecting && view.selected);
+    if (item.classList.contains('ew-selected') !== tinted) item.classList.toggle('ew-selected', tinted);
+  }
+
+  // While selecting, Campuswire's own card toggles instead of opening the post (opening would mark it viewed).
+  function onNativeCard(event) {
+    if (!selecting || !(event.target instanceof Element)) return;
+    if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== ' ') return;
+    const item = event.target.closest(`${SELECTORS.nativeList} ${SELECTORS.item}`);
+    if (!item) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const box = item.querySelector('.ew-select [data-post-id]');
+    if (box) handlers.onToggleSelect(box.dataset.postId);
+  }
+
+  function closeMenu() {
+    const button = document.querySelector(SELECTORS.categoryButton);
+    if (button) button.click(); // closes Campuswire's menu
   }
 
   // Picking "Recent activity" toggles the sort; picking any Campuswire filter turns it off so that filter applies.
@@ -181,7 +265,7 @@
     if (!li) return;
     if (li.classList.contains('ew-export')) {
       event.stopPropagation(); // keep the menu open so the "Copied" label shows
-      handlers.onExport();
+      if (!handlers.onExport()) closeMenu(); // opening the modal: get the menu out of the way
       return;
     }
     if (!li.classList.contains('ew-recent')) {
@@ -190,8 +274,7 @@
     }
     event.stopPropagation();
     handlers.onToggleSorted();
-    const button = document.querySelector(SELECTORS.categoryButton);
-    if (button) button.click(); // closes Campuswire's menu
+    closeMenu();
   }
 
   function ensureMenuItem(state) {
@@ -215,7 +298,7 @@
 
     let exportLi = menu.querySelector(':scope > .ew-export');
     if (!exportLi) {
-      li.insertAdjacentHTML('afterend', '<li data-content="true" class="ew-export" title="Copy every post and its replies as text"><i class="far fa-copy"></i><span></span></li>');
+      li.insertAdjacentHTML('afterend', '<li data-content="true" class="ew-export" title="Copy posts and their replies as text"><i class="far fa-copy"></i><span></span></li>');
       exportLi = li.nextElementSibling;
     }
     const label = exportLi.lastElementChild;
@@ -238,9 +321,12 @@
 
   function onRootClick(event) {
     event.stopPropagation();
-    const pin = event.target.closest('.ew-pin');
-    if (pin) {
-      handlers.onTogglePin(pin.dataset.postId);
+    if (event.target.closest('.ew-select-cancel')) {
+      handlers.onCancelSelect();
+      return;
+    }
+    if (event.target.closest('.ew-select-copy')) {
+      handlers.onCopySelected();
       return;
     }
     if (event.target.closest('.ew-section')) {
@@ -248,6 +334,19 @@
       return;
     }
     const item = event.target.closest('.ew-item');
+    if (selecting) {
+      const box = item && item.querySelector('.ew-select [data-post-id]');
+      if (box) {
+        event.preventDefault(); // the label/checkbox must not toggle itself; render does it
+        handlers.onToggleSelect(box.dataset.postId);
+      }
+      return;
+    }
+    const pin = event.target.closest('.ew-pin');
+    if (pin) {
+      handlers.onTogglePin(pin.dataset.postId);
+      return;
+    }
     if (item) handlers.onOpen(Number(item.dataset.number));
   }
 
@@ -262,6 +361,10 @@
     const { sortByActivity } = root.EasywireActivity;
     const item = (post) => itemHtml(post, viewOf(post, state));
     let html = '';
+    if (state.selecting) {
+      const count = root.EasywireExport.filterPosts(state.posts, { selectedIds: state.selectedIds }).length; // deleted posts drop out
+      html += selectBarHtml({ count, status: state.selectStatus });
+    }
     const pinned = sortByActivity(state.posts.filter((p) => state.pinnedIds.includes(p.id)), state.summaries);
     if (pinned.length) {
       html += `<div class="filter-by d-flex align-items-center ew-section" role="button" tabindex="0"><i class="fas fa-chevron-${state.collapsed ? 'right' : 'down'}"></i> My pins</div>`;
@@ -285,14 +388,70 @@
     if (rootEl.nextElementSibling !== nativeList) nativeList.before(rootEl);
     const html = rootHtml(state);
     if (rootEl.ewHtml !== html) {
+      // The swap destroys the focused card; restore focus by index (a post can appear in both My pins and the list).
+      const focusIndex = rootEl.contains(document.activeElement)
+        ? [...rootEl.querySelectorAll('[tabindex="0"]')].indexOf(document.activeElement)
+        : -1;
       rootEl.innerHTML = html;
       rootEl.ewHtml = html;
+      if (focusIndex >= 0) rootEl.querySelectorAll('[tabindex="0"]')[focusIndex]?.focus();
     }
     if (rootEl.hidden !== !html) rootEl.hidden = !html;
   }
 
+  function onModalClick(event) {
+    if (event.target.closest('.ew-export-close') || event.target.classList.contains('ew-export-modal')) handlers.onCloseExport();
+    else if (event.target.closest('.ew-export-select')) handlers.onStartSelect();
+    else if (event.target.closest('.ew-export-all')) handlers.onExportAll();
+  }
+
+  function onModalInput(event) {
+    const dialog = event.currentTarget;
+    handlers.onExportDates(dialog.querySelector('#ew-export-from').value, dialog.querySelector('#ew-export-to').value);
+  }
+
+  function onModalKeydown(event) {
+    if (event.key !== 'Escape') return;
+    event.stopPropagation(); // don't let Campuswire act on it too
+    handlers.onCloseExport();
+  }
+
+  // Appended to <body> like Campuswire's own modals. The dates are written once on open and never re-rendered.
+  function renderExportModal(state) {
+    let dialog = document.querySelector('body > .ew-export-dialog');
+    if (!state.exportModal) {
+      if (dialog) {
+        dialog.remove();
+        const button = document.querySelector(SELECTORS.categoryButton);
+        if (button) button.focus();
+      }
+      return;
+    }
+    const { from, to, status } = state.exportModal;
+    if (!dialog) {
+      dialog = document.createElement('div');
+      dialog.className = 'ew-export-dialog';
+      dialog.innerHTML = EXPORT_MODAL_HTML;
+      dialog.querySelector('#ew-export-from').value = from;
+      dialog.querySelector('#ew-export-to').value = to;
+      dialog.addEventListener('click', onModalClick);
+      dialog.addEventListener('input', onModalInput);
+      dialog.addEventListener('keydown', onModalKeydown);
+      document.body.append(dialog);
+      dialog.querySelector('#ew-export-from').focus();
+    }
+    const matching = root.EasywireExport.filterPosts(state.posts, { from, to }).length;
+    const view = exportModalView({ total: state.posts.length, matching, invalid: Boolean(from && to && from > to), status });
+    const count = dialog.querySelector('.ew-export-count');
+    if (count.textContent !== view.countText) count.textContent = view.countText;
+    const all = dialog.querySelector('.ew-export-all');
+    if (all.textContent !== view.allLabel) all.textContent = view.allLabel;
+    if (all.disabled !== view.allDisabled) all.disabled = view.allDisabled;
+  }
+
   function render(state, nextHandlers) {
     handlers = nextHandlers;
+    renderExportModal(state); // before the layout check: the dialog is on <body> and must close even if the feed is gone
     const nativeList = document.querySelector(SELECTORS.nativeList);
     const categoryButton = document.querySelector(SELECTORS.categoryButton);
     if (!nativeList || !categoryButton) {
@@ -303,6 +462,9 @@
       return;
     }
     ensureMenuItem(state);
+    selecting = state.selecting;
+    document.addEventListener('click', onNativeCard, true); // same function, so re-adding is a no-op
+    document.addEventListener('keydown', onNativeCard, true);
     setCategoryLabel(categoryButton, state.sorted);
     const byNumber = new Map(state.posts.map((post) => [post.number, post]));
     const live = { ...state, native: new Map() }; // native: post id -> unread dot and badge on Campuswire's own card
@@ -314,7 +476,9 @@
 
   // Undo everything render() added so the page looks like plain Campuswire.
   function teardown() {
-    for (const el of document.querySelectorAll('.ew-root, .ew-recent, .ew-export, .ew-pin, .ew-count')) el.remove();
+    for (const el of document.querySelectorAll('.ew-root, .ew-recent, .ew-export, .ew-pin, .ew-count, .ew-select, .ew-export-dialog')) el.remove();
+    for (const item of document.querySelectorAll('.ew-selected')) item.classList.remove('ew-selected');
+    selecting = false;
     const categoryButton = document.querySelector(SELECTORS.categoryButton);
     if (categoryButton) setCategoryLabel(categoryButton, false);
     for (const time of document.querySelectorAll('[data-ew-original]')) {
@@ -344,7 +508,7 @@
     if (slug) location.assign(`/c/${slug}/feed/${number}`);
   }
 
-  const api = { SELECTORS, ANONYMOUS_IMG, render, teardown, openPost, postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle, unreadOf };
+  const api = { SELECTORS, ANONYMOUS_IMG, render, teardown, openPost, postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle, unreadOf, selectHtml, selectBarHtml, exportModalView, EXPORT_MODAL_HTML };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.EasywireRender = api;
 })(globalThis);

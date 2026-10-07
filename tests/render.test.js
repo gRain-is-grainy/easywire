@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle, unreadOf, ANONYMOUS_IMG } = require('../src/render.js');
+const { postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle, unreadOf, ANONYMOUS_IMG, selectHtml, selectBarHtml, exportModalView, EXPORT_MODAL_HTML } = require('../src/render.js');
 
 test('postNumberFromRef', () => {
   assert.equal(postNumberFromRef('#40'), 40);
@@ -125,4 +125,59 @@ test('itemHtml shows the same type icon as Campuswire: pen for notes, check for 
   assert.ok(resolved.includes('<div class="post-type-icon" title="This question is resolved"><i class="fas fa-check"></i></div>'));
   const open = itemHtml({ id: 'o', number: 3, title: 't', body: 'b', likesCount: 0, answered: false, note: false }, view);
   assert.ok(!open.includes('post-type-icon'));
+});
+
+test('itemHtml swaps the pin for a Campuswire checkbox while selecting and tints selected cards', () => {
+  const post = { id: 'p9', number: 9, title: 't', body: 'b', likesCount: 0 };
+  const view = { time: '2 days', count: null, pinned: true, selecting: true, selected: true };
+  const html = itemHtml(post, view);
+  assert.ok(!html.includes('ew-pin'));
+  assert.ok(html.includes('class="post-preview-wrapper d-flex align-items-start ew-item ew-selected"'));
+  assert.ok(html.includes('<div class="post-preview-stats"><div class="custom-control custom-checkbox ew-select">'));
+  assert.ok(html.includes('aria-label="Select post #9" checked>'));
+  const unselected = itemHtml(post, { ...view, selected: false });
+  assert.ok(!unselected.includes('ew-selected'));
+  assert.ok(!unselected.includes(' checked'));
+  assert.ok(itemHtml(post, { ...view, selecting: false }).includes('ew-pin is-pinned'));
+});
+
+test('selectHtml escapes the post id, keeps the input out of the tab order, and labels it with the post number', () => {
+  const html = selectHtml({ id: 'a"b', number: 4 }, false);
+  assert.ok(html.includes('data-post-id="a&quot;b" aria-label="Select post #4">'));
+  assert.ok(html.includes('<label class="custom-control-label"></label>'));
+  assert.ok(html.includes('tabindex="-1"'));
+  assert.ok(!html.includes(' checked'));
+  assert.ok(!html.includes(' id=') && !html.includes(' for='));
+});
+
+test('selectBarHtml: count, Copy label, disabled at zero, status replaces the label', () => {
+  const four = selectBarHtml({ count: 4, status: '' });
+  assert.ok(four.includes('<span class="ew-select-count">4 selected</span>'));
+  assert.ok(four.includes('<button type="button" class="btn btn-outline ew-select-cancel">Cancel</button>'));
+  assert.ok(four.includes('<button type="button" class="btn btn-primary ew-select-copy">Copy 4 posts</button>'));
+  assert.ok(selectBarHtml({ count: 1, status: '' }).includes('>Copy 1 post</button>'));
+  assert.ok(selectBarHtml({ count: 0, status: '' }).includes('ew-select-copy" disabled>Copy 0 posts</button>'));
+  assert.ok(selectBarHtml({ count: 4, status: 'Copied 4 posts' }).includes('>Copied 4 posts</button>'));
+});
+
+test('exportModalView: count line, Export all label, and when the button is disabled', () => {
+  assert.deepEqual(exportModalView({ total: 95, matching: 23, invalid: false, status: '' }), { countText: '23 of 95 posts', allLabel: 'Export all 23', allDisabled: false });
+  assert.deepEqual(exportModalView({ total: 1, matching: 1, invalid: false, status: '' }), { countText: '1 of 1 post', allLabel: 'Export all 1', allDisabled: false });
+  assert.deepEqual(exportModalView({ total: 95, matching: 0, invalid: false, status: '' }), { countText: '0 of 95 posts', allLabel: 'No posts in range', allDisabled: true });
+  assert.deepEqual(exportModalView({ total: 95, matching: 0, invalid: true, status: '' }), { countText: 'Start date is after end date', allLabel: 'No posts in range', allDisabled: true });
+  assert.deepEqual(exportModalView({ total: 95, matching: 23, invalid: false, status: 'Copied 23 posts' }), { countText: '23 of 95 posts', allLabel: 'Copied 23 posts', allDisabled: true });
+});
+
+test('the Export modal is a labelled dialog built from Campuswire modal classes', () => {
+  assert.ok(EXPORT_MODAL_HTML.includes('<div class="modal-backdrop show"></div>'));
+  assert.ok(EXPORT_MODAL_HTML.includes('class="modal show ew-export-modal" role="dialog" aria-modal="true" aria-labelledby="ew-export-title"'));
+  assert.ok(EXPORT_MODAL_HTML.includes('aria-labelledby="ew-export-title" tabindex="-1">'));
+  assert.ok(EXPORT_MODAL_HTML.includes('<h5 class="modal-title" id="ew-export-title">Export posts</h5>'));
+  assert.ok(EXPORT_MODAL_HTML.includes('Published between (optional)'));
+  assert.ok(EXPORT_MODAL_HTML.includes('<input type="date" class="form-control" id="ew-export-from" aria-label="From date">'));
+  assert.ok(EXPORT_MODAL_HTML.includes('<input type="date" class="form-control" id="ew-export-to" aria-label="To date">'));
+  assert.ok(EXPORT_MODAL_HTML.includes('aria-label="Close"'));
+  assert.ok(EXPORT_MODAL_HTML.includes('<div class="ew-export-count" aria-live="polite"></div>'));
+  assert.ok(EXPORT_MODAL_HTML.includes('class="btn btn-outline ew-export-select">Select posts</button><button type="button" class="btn btn-primary ew-export-all"></button>'));
+  assert.ok(!/style=/.test(EXPORT_MODAL_HTML)); // Campuswire's CSP blocks inline styles
 });

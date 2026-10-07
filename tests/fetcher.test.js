@@ -427,3 +427,33 @@ test('loadThreads is empty for a class never crawled', async () => {
   const fetcher = createFetcher({ request: fakeApi({ posts: [] }).request, storage: fakeStorage() });
   assert.deepEqual(await fetcher.loadThreads(G), {});
 });
+
+test('remove drops a post from the stored cache and threads', async () => {
+  const posts = makePosts(2);
+  const storage = fakeStorage();
+  const fetcher = createFetcher({ request: fakeApi({ posts }).request, storage });
+  await fetcher.refresh(G, () => {});
+  await fetcher.remove(G, 'p2');
+  const cache = await fetcher.load(G);
+  assert.deepEqual(cache.posts.map((p) => p.id), ['p1']);
+  assert.equal(cache.summaries.p2, undefined);
+  assert.deepEqual(Object.keys(await fetcher.loadThreads(G)), ['p1']);
+});
+
+test('a post removed during a crawl does not come back when the crawl saves', async () => {
+  const posts = makePosts(3);
+  const storage = fakeStorage();
+  const fetcher = createFetcher({ request: fakeApi({ posts, delay: 5 }).request, storage, concurrency: 1 });
+  const seen = [];
+  let removing = null;
+  const done = fetcher.refresh(G, (cache) => {
+    seen.push(cache.posts.map((p) => p.id));
+    if (cache.posts.length && !removing) removing = fetcher.remove(G, 'p2');
+  });
+  await done;
+  await removing;
+  assert.deepEqual((await fetcher.load(G)).posts.map((p) => p.id), ['p3', 'p1']);
+  assert.equal((await fetcher.load(G)).summaries.p2, undefined);
+  assert.equal((await fetcher.loadThreads(G)).p2, undefined);
+  assert.ok(!seen.at(-1).includes('p2'));
+});

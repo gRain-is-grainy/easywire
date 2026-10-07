@@ -210,3 +210,14 @@ test("reads unread comment counts from Campuswire's ready frame and replays them
   await hook.hello();
   assert.deepEqual(unreadMessages(hook).at(-1).counts, { c1: 2 });
 });
+
+test("passes on Campuswire's wall-post-deleted socket events", () => {
+  const hook = loadHook();
+  const socket = new hook.win.WebSocket('wss://example');
+  socket.receive(JSON.stringify({ event: 'wall-post-deleted', data: { id: 'p9', group: G, type: 'question' } }));
+  socket.receive(JSON.stringify({ event: 'wall-post-deleted', data: {} }));
+  assert.deepEqual(
+    hook.fromHook().filter((m) => m.type === 'post-deleted').map(({ groupId, postId }) => ({ groupId, postId })),
+    [{ groupId: G, postId: 'p9' }]
+  );
+});

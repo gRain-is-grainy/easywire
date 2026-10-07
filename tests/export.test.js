@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { formatExport } = require('../src/export.js');
+const { formatExport, filterPosts } = require('../src/export.js');
 
 const NOW = Date.UTC(2026, 9, 7, 12, 0);
 
@@ -71,4 +71,57 @@ test('formatExport: anonymous reply and missing or bad times do not throw', () =
   const { text } = formatExport(posts, threads, NOW);
   assert.ok(text.includes('\nAda Lovelace\nb\n'));
   assert.ok(text.includes('  > Anonymous\n    r\n'));
+});
+
+const at = (id, publishedAt) => ({ id, publishedAt });
+// Built from local wall-clock times so the tests pass in any timezone.
+const localIso = (y, m, d, h = 0, min = 0, s = 0) => new Date(y, m - 1, d, h, min, s).toISOString();
+const rangePosts = [
+  at('after', localIso(2026, 10, 8, 0, 0, 0)),
+  at('lastMoment', localIso(2026, 10, 7, 23, 59, 59)),
+  at('firstMoment', localIso(2026, 9, 22, 0, 0, 0)),
+  at('before', localIso(2026, 9, 21, 23, 59, 59)),
+];
+const ids = (posts) => posts.map((p) => p.id);
+
+test('filterPosts: no filters keeps every post in order', () => {
+  assert.deepEqual(filterPosts(rangePosts), rangePosts);
+  assert.deepEqual(filterPosts(rangePosts, { from: '', to: '' }), rangePosts);
+});
+
+test('filterPosts: both bounds are inclusive local days', () => {
+  assert.deepEqual(ids(filterPosts(rangePosts, { from: '2026-09-22', to: '2026-10-07' })), ['lastMoment', 'firstMoment']);
+});
+
+test('filterPosts: a blank side is unbounded', () => {
+  assert.deepEqual(ids(filterPosts(rangePosts, { from: '2026-09-22' })), ['after', 'lastMoment', 'firstMoment']);
+  assert.deepEqual(ids(filterPosts(rangePosts, { to: '2026-10-07' })), ['lastMoment', 'firstMoment', 'before']);
+});
+
+test('filterPosts: a start after the end matches nothing', () => {
+  assert.deepEqual(filterPosts(rangePosts, { from: '2026-10-07', to: '2026-09-22' }), []);
+});
+
+test('filterPosts: posts with a missing or bad date stay without bounds and drop out with one', () => {
+  const posts = [at('none', undefined), at('bad', 'nope'), at('ok', localIso(2026, 10, 1, 12))];
+  assert.deepEqual(ids(filterPosts(posts)), ['none', 'bad', 'ok']);
+  assert.deepEqual(ids(filterPosts(posts, { from: '2026-01-01' })), ['ok']);
+});
+
+test('filterPosts: selected ids win over dates, keep class order, and skip ids no longer in the class', () => {
+  const posts = [at('a', localIso(2026, 10, 3)), at('b', localIso(2026, 10, 2)), at('c', localIso(2026, 10, 1))];
+  assert.deepEqual(ids(filterPosts(posts, { from: '2030-01-01', selectedIds: ['c', 'a', 'gone'] })), ['a', 'c']);
+  assert.deepEqual(filterPosts(posts, { selectedIds: [] }), []);
+});
+
+test('formatExport: header names what was exported', () => {
+  const header = (posts, scope) => formatExport(posts, {}, NOW, scope).text.split('\n')[0];
+  const two = [post({ id: 'a' }), post({ id: 'b' })];
+  assert.equal(header(two), 'Campuswire class export: 2 posts, copied 2026-10-07');
+  assert.equal(header(two, { from: '', to: '' }), 'Campuswire class export: 2 posts, copied 2026-10-07');
+  assert.equal(header([post()], { selected: true }), 'Campuswire class export: 1 selected post, copied 2026-10-07');
+  assert.equal(header(two, { selected: true }), 'Campuswire class export: 2 selected posts, copied 2026-10-07');
+  assert.equal(header(two, { from: '2026-09-22', to: '2026-10-07' }), 'Campuswire class export: 2 posts published 2026-09-22 to 2026-10-07, copied 2026-10-07');
+  assert.equal(header(two, { from: '2026-09-22', to: '' }), 'Campuswire class export: 2 posts published from 2026-09-22, copied 2026-10-07');
+  assert.equal(header(two, { from: '', to: '2026-10-07' }), 'Campuswire class export: 2 posts published up to 2026-10-07, copied 2026-10-07');
 });

@@ -50,6 +50,7 @@
   }) {
     let generation = 0;
     let runningGroupId = null;
+    const removed = new Set(); // posts Campuswire said were deleted; a running crawl may have fetched them already
     const keyFor = (groupId) => `cache:${groupId}`;
     const refreshedKey = (groupId) => `refreshedAt:${groupId}`;
     const threadsKey = (groupId) => `threads:${groupId}`;
@@ -139,10 +140,19 @@
       // An empty list for a class we've seen posts in is more likely a glitch than a wiped class: keep cache and pins.
       if (!list.posts.length && cached.posts.length) return { complete: false, paused: false };
 
-      const posts = list.posts.map(slim);
+      const raw = list.posts.filter((post) => !removed.has(post.id));
+      const posts = raw.map(slim);
       const summaries = {};
       for (const post of posts) if (cached.summaries[post.id]) summaries[post.id] = cached.summaries[post.id];
       const fresh = { posts, summaries };
+      function dropRemoved() {
+        if (!removed.size) return;
+        fresh.posts = fresh.posts.filter((post) => !removed.has(post.id));
+        for (const id of removed) {
+          delete fresh.summaries[id];
+          delete threads[id];
+        }
+      }
       const cachedThreads = await loadThreads(groupId);
       const threads = {};
       for (const post of posts) if (cachedThreads[post.id]) threads[post.id] = cachedThreads[post.id];
@@ -162,7 +172,8 @@
           if (response.ok) {
             const comments = Array.isArray(response.data) ? response.data : [];
             fresh.summaries[post.id] = summarize(post, comments);
-            threads[post.id] = thread(list.posts[index], comments);
+            threads[post.id] = thread(raw[index], comments);
+            dropRemoved();
             onUpdate(fresh);
             if (++done % pageSize === 0) await save(groupId, fresh, threads); // keep progress if the page reloads
           } else if (PAUSE_STATUSES.includes(response.status)) {
@@ -172,9 +183,20 @@
       }
       await Promise.all(Array.from({ length: Math.min(concurrency, posts.length) }, worker));
       if (isStale()) return { stale: true };
+      dropRemoved();
       await save(groupId, fresh, threads);
       if (paused) await pause();
       return { complete: true, paused };
+    }
+
+    // Forgets a deleted post now instead of waiting for the next refresh; pins are pruned by that refresh as usual.
+    async function remove(groupId, postId) {
+      removed.add(postId);
+      const cache = await load(groupId);
+      const threads = await loadThreads(groupId);
+      delete cache.summaries[postId];
+      delete threads[postId];
+      await save(groupId, { posts: cache.posts.filter((post) => post.id !== postId), summaries: cache.summaries }, threads);
     }
 
     // Abandons any running refresh (the extension was switched off).
@@ -183,7 +205,7 @@
       runningGroupId = null;
     }
 
-    return { load, loadThreads, refresh, cancel };
+    return { load, loadThreads, refresh, remove, cancel };
   }
 
   const api = { createFetcher };
