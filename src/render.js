@@ -323,14 +323,6 @@
 
   function onRootClick(event) {
     event.stopPropagation();
-    if (event.target.closest('.ew-select-cancel')) {
-      handlers.onCancelSelect();
-      return;
-    }
-    if (event.target.closest('.ew-select-copy')) {
-      handlers.onCopySelected();
-      return;
-    }
     if (event.target.closest('.ew-section')) {
       handlers.onToggleCollapsed();
       return;
@@ -363,10 +355,6 @@
     const { sortByActivity } = root.EasywireActivity;
     const item = (post) => itemHtml(post, viewOf(post, state));
     let html = '';
-    if (state.selecting) {
-      const count = root.EasywireExport.filterPosts(state.posts, { selectedIds: state.selectedIds }).length; // deleted posts drop out
-      html += selectBarHtml({ count, status: state.selectStatus });
-    }
     const pinned = sortByActivity(state.posts.filter((p) => state.pinnedIds.includes(p.id)), state.summaries);
     if (pinned.length) {
       html += `<div class="filter-by d-flex align-items-center ew-section" role="button" tabindex="0"><i class="fas fa-chevron-${state.collapsed ? 'right' : 'down'}"></i> My pins</div>`;
@@ -377,6 +365,33 @@
       html += sortByActivity(state.posts, state.summaries).map(item).join('');
     }
     return html;
+  }
+
+  function onDockClick(event) {
+    event.stopPropagation();
+    if (event.target.closest('.ew-select-cancel')) handlers.onCancelSelect();
+    else if (event.target.closest('.ew-select-copy')) handlers.onCopySelected();
+  }
+
+  // The bar sits in the scroller itself (not .ew-root, which is short and may be hidden) so it can stick to the top.
+  function renderDock(rootEl, state) {
+    let dock = rootEl.parentElement.querySelector(':scope > .ew-select-dock');
+    if (!state.selecting) {
+      if (dock) dock.remove();
+      return;
+    }
+    if (!dock) {
+      dock = document.createElement('div');
+      dock.className = 'ew-select-dock';
+      dock.addEventListener('click', onDockClick);
+    }
+    if (dock.nextElementSibling !== rootEl) rootEl.before(dock);
+    const count = root.EasywireExport.filterPosts(state.posts, { selectedIds: state.selectedIds }).length; // deleted posts drop out
+    const html = selectBarHtml({ count, status: state.selectStatus });
+    if (dock.ewHtml !== html) {
+      dock.innerHTML = html;
+      dock.ewHtml = html;
+    }
   }
 
   function renderRoot(nativeList, state) {
@@ -399,6 +414,7 @@
       if (focusIndex >= 0) rootEl.querySelectorAll('[tabindex="0"]')[focusIndex]?.focus();
     }
     if (rootEl.hidden !== !html) rootEl.hidden = !html;
+    renderDock(rootEl, state);
   }
 
   function onModalClick(event) {
@@ -478,7 +494,7 @@
 
   // Undo everything render() added so the page looks like plain Campuswire.
   function teardown() {
-    for (const el of document.querySelectorAll('.ew-root, .ew-recent, .ew-export, .ew-pin, .ew-count, .ew-select, .ew-export-dialog')) el.remove();
+    for (const el of document.querySelectorAll('.ew-root, .ew-select-dock, .ew-recent, .ew-export, .ew-pin, .ew-count, .ew-select, .ew-export-dialog')) el.remove();
     for (const item of document.querySelectorAll('.ew-selected')) item.classList.remove('ew-selected');
     selecting = false;
     const categoryButton = document.querySelector(SELECTORS.categoryButton);
