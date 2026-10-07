@@ -98,13 +98,13 @@
   }
 
   // Campuswire's avatar markup. Every named user has a photo, so no photo means an anonymous post.
-  function avatarHtml(post, status) {
+  function avatarHtml(post, status, extra = '') {
     const name = escapeHtml(post.authorName || '');
     const img = post.authorPhoto
       ? `<img alt="${name}" src="${escapeHtml(post.authorPhoto)}">`
       : `<img alt="Anonymous user" src="${ANONYMOUS_IMG}">`;
     const statusClass = status === 'active' ? 'online' : escapeHtml(status || 'offline'); // same mapping as Campuswire
-    return `<div title="${name || 'Anonymous'}"><div class="user-img-wrap"><div class="img-wrap">${img}</div><span class="user-status ${statusClass}"></span></div></div>`;
+    return `<div title="${name || 'Anonymous'}"><div class="user-img-wrap"><div class="img-wrap">${img}</div><span class="user-status ${statusClass}"></span></div>${extra}</div>`;
   }
 
   function itemHtml(post, view) {
@@ -116,10 +116,10 @@
     const badge = view.badge ? `<div class="unread-badge">${escapeHtml(view.badge)}</div>` : '';
     return (
       `<div role="button" tabindex="0" class="post-preview-wrapper d-flex align-items-start ew-item${unread}${selected}" data-number="${number}">` +
-      `${avatarHtml(post, view.status)}<div class="post-preview">` +
+      `${avatarHtml(post, view.status, view.selecting ? selectHtml(post, view.selected) : '')}<div class="post-preview">` +
       `<div class="post-title d-flex justify-content-between"><h3>${escapeHtml(post.title)}</h3><span class="post-ref">#${number}</span></div>` +
       `<div class="post-text-wrap d-flex justify-content-between align-items-center"><div class="post-text">${escapeHtml(post.body)}</div>${typeIcon}</div>` +
-      `<div class="post-preview-footer d-flex align-items-center"><div class="post-time"><span class="post-likes"><i class="far fa-thumbs-up"></i>${Number(post.likesCount) || 0}</span><i class="far fa-clock"></i>${escapeHtml(view.time)}${count}</div><div class="post-preview-stats">${badge}${view.selecting ? selectHtml(post, view.selected) : pinHtml(post.id, view.pinned)}</div></div>` +
+      `<div class="post-preview-footer d-flex align-items-center"><div class="post-time"><span class="post-likes"><i class="far fa-thumbs-up"></i>${Number(post.likesCount) || 0}</span><i class="far fa-clock"></i>${escapeHtml(view.time)}${count}</div><div class="post-preview-stats">${badge}${view.selecting ? '' : pinHtml(post.id, view.pinned)}</div></div>` +
       '</div></div>'
     );
   }
@@ -177,8 +177,6 @@
   }
 
   function setPin(stats, postId, pinned) {
-    const box = stats.querySelector(':scope > .ew-select');
-    if (box) box.remove();
     const existing = stats.querySelector(':scope > .ew-pin');
     if (!existing) {
       stats.insertAdjacentHTML('beforeend', pinHtml(postId, pinned));
@@ -197,13 +195,12 @@
     if (existing.title !== label) existing.title = label;
   }
 
-  function setSelect(stats, post, selected) {
-    const pin = stats.querySelector(':scope > .ew-pin');
-    if (pin) pin.remove();
-    let box = stats.querySelector(':scope > .ew-select');
+  // The box sits under the avatar, in the card's first child.
+  function setSelect(item, post, selected) {
+    let box = item.firstElementChild.querySelector(':scope > .ew-select');
     if (!box) {
-      stats.insertAdjacentHTML('beforeend', selectHtml(post, selected));
-      box = stats.lastElementChild;
+      item.firstElementChild.insertAdjacentHTML('beforeend', selectHtml(post, selected));
+      box = item.firstElementChild.lastElementChild;
     }
     const input = box.querySelector('input');
     if (input.checked !== selected) input.checked = selected;
@@ -234,9 +231,14 @@
       setCount(time, view.count);
     }
     const stats = item.querySelector(SELECTORS.stats);
-    if (stats) {
-      if (view.selecting) setSelect(stats, post, view.selected);
-      else setPin(stats, post.id, view.pinned);
+    if (view.selecting) {
+      const pin = stats && stats.querySelector(':scope > .ew-pin');
+      if (pin) pin.remove();
+      if (item.firstElementChild) setSelect(item, post, view.selected);
+    } else {
+      const box = item.querySelector('.ew-select');
+      if (box) box.remove();
+      if (stats) setPin(stats, post.id, view.pinned);
     }
     const tinted = Boolean(view.selecting && view.selected);
     if (item.classList.contains('ew-selected') !== tinted) item.classList.toggle('ew-selected', tinted);

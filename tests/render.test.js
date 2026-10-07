@@ -133,7 +133,8 @@ test('itemHtml swaps the pin for a Campuswire checkbox while selecting and tints
   const html = itemHtml(post, view);
   assert.ok(!html.includes('ew-pin'));
   assert.ok(html.includes('class="post-preview-wrapper d-flex align-items-start ew-item ew-selected"'));
-  assert.ok(html.includes('<div class="post-preview-stats"><div class="custom-control custom-checkbox ew-select">'));
+  assert.ok(/<\/span><\/div><div class="custom-control custom-checkbox ew-select">.*?<\/div><\/div><div class="post-preview">/.test(html)); // under the avatar
+  assert.ok(!/<div class="post-preview-stats">[^]*ew-select/.test(html));
   assert.ok(html.includes('aria-label="Select post #9" checked>'));
   const unselected = itemHtml(post, { ...view, selected: false });
   assert.ok(!unselected.includes('ew-selected'));

@@ -101,3 +101,25 @@ body.theme-dark .ew-export-dates .form-control {
 body.theme-dark .post-preview-wrapper.ew-selected {
   background: rgba(79, 80, 255, 0.16); /* 0.08 barely shows on the dark feed */
 }
+/* Selection checkbox: 16px (same as the resolved icon), centered under the avatar */
+.ew-select.custom-control {
+  width: 16px;
+  min-height: 16px;
+  margin: 8px auto 0;
+  padding: 0;
+}
+.ew-select .custom-control-label {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+.ew-select .custom-control-label::before,
+.ew-select .custom-control-label::after {
+  top: 0;
+  left: 0;
+  width: 16px;
+  height: 16px;
+}
+.ew-select .custom-control-label::before {
+  border-radius: 4px;
+}
