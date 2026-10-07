@@ -20,7 +20,7 @@ function makePosts(n) {
 }
 
 function slim(p) {
-  return { id: p.id, number: p.number, title: p.title, body: p.body, publishedAt: p.publishedAt, likesCount: 0, answered: false, note: false, read: true, authorId: '', authorName: '', authorPhoto: '' };
+  return { id: p.id, number: p.number, title: p.title, body: p.body, publishedAt: p.publishedAt, likesCount: 0, answered: false, note: false, read: false, conversationId: '', authorId: '', authorName: '', authorPhoto: '' };
 }
 
 // status: { urlSubstring: httpStatus } forces failures.
@@ -364,19 +364,22 @@ test('slim posts record whether a post is a note', async () => {
   assert.equal(b.note, false);
 });
 
-test('slim posts record read state and author id, name and photo', async () => {
+test('slim posts record read state, conversation and author id, name and photo', async () => {
   const [named, anonymous] = makePosts(2);
-  named.read = false;
+  named.read = true;
+  named.conversationId = 'c1';
   named.author = { id: 'u1', firstName: 'Raj', lastName: 'Venkat', photo: 'https://files.campuswire.com/avatars/r.png' };
   anonymous.author = {};
   const fetcher = createFetcher({ request: fakeApi({ posts: [named, anonymous] }).request, storage: fakeStorage() });
   await fetcher.refresh(G, () => {});
   const [a, b] = (await fetcher.load(G)).posts;
-  assert.equal(a.read, false);
+  assert.equal(a.read, true);
+  assert.equal(a.conversationId, 'c1');
   assert.equal(a.authorId, 'u1');
   assert.equal(a.authorName, 'Raj Venkat');
   assert.equal(a.authorPhoto, 'https://files.campuswire.com/avatars/r.png');
-  assert.equal(b.read, true);
+  assert.equal(b.read, false); // Campuswire leaves `read` unset on unread posts
+  assert.equal(b.conversationId, '');
   assert.equal(b.authorId, '');
   assert.equal(b.authorName, '');
   assert.equal(b.authorPhoto, '');

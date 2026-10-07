@@ -13,6 +13,7 @@
     paused: false,
     enabled: false, // set from storage at startup; the toolbar popup flips it
     presence: {}, // userId -> status, from Campuswire's own traffic via page-hook.js
+    unreadCounts: {}, // conversationId -> unread comments, from Campuswire's socket snapshot via page-hook.js
   };
   let feedGroupId = null; // last class Campuswire's feed loaded, so switching on can fetch it
 
@@ -49,6 +50,9 @@
       if (state.enabled) onFeed(data.groupId);
     } else if (data.type === 'presence') {
       Object.assign(state.presence, data.statuses);
+      schedule();
+    } else if (data.type === 'unread') {
+      state.unreadCounts = data.counts;
       schedule();
     }
   });
@@ -134,6 +138,7 @@
           collapsed: state.collapsed,
           paused: state.paused,
           presence: state.presence,
+          unreadCounts: state.unreadCounts,
           now: Date.now(),
         },
         handlers
@@ -150,7 +155,7 @@
 
   new MutationObserver((records) => {
     if (records.some(touchesFeed)) schedule();
-  }).observe(document.body, { childList: true, subtree: true, characterData: true });
+  }).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class'] }); // class: Campuswire's unread dot
   setInterval(schedule, 60 * 1000); // keep relative times current; no network
 
   // page-hook.js still loads while off (manifest scripts can't be switched off), but it only answers our requests.

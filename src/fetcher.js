@@ -14,7 +14,8 @@
       likesCount: post.likesCount || 0,
       answered: Boolean(post.answeredAt),
       note: post.type === 'note',
-      read: post.read !== false,
+      read: Boolean(post.read), // Campuswire leaves `read` unset on unread posts
+      conversationId: post.conversationId || '', // keys Campuswire's unread-comment counts
       authorId: author.id || '',
       authorName: [author.firstName, author.lastName].filter(Boolean).join(' '),
       authorPhoto: author.photo || '',

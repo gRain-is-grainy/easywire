@@ -30,7 +30,7 @@ easywire fetches the replies for every post in the class, works out each post's 
 - **Reply counts** —> every feed item shows its total replies at every depth, right next to the time
 - **Recent activity sort** —> a new option in Campuswire's own category dropdown that re-orders the whole class feed by latest activity
 - **Native look** —> sorted and pinned cards reuse Campuswire's layout and post-type icons (pen for notes, check for resolved questions)
-- **Avatars and presence** —> pinned and sorted cards show the author's avatar with a live online dot, plus Campuswire's unread marker
+- **Avatars and presence** —> pinned and sorted cards show the author's avatar with a live online dot, plus Campuswire's unread dot and new-comment badge
 - **Anonymous icons** —> anonymous posts get Campuswire's own anonymous avatar instead of the blank spot the page leaves, on native cards too
 
 ### Pins
@@ -51,7 +51,7 @@ easywire never posts, replies, edits, reacts, marks posts viewed, or changes set
 - Only `src/page-hook.js` makes network requests, and every one passes through `EasywireGuard.isAllowedRequest` first.
 - The guard accepts `GET` requests only, and only for two URL shapes: the post list (`/v1/group/{id}/posts?number=N[&before=…]`) and a post's comments (`/v1/group/{id}/posts/{id}/comments`). Anything else is refused, including `POST`, `/viewed`, `..` segments, and look-alike hosts.
 - Fetching `/comments` doesn't mark a post viewed. That only happens when you open the post yourself.
-- Online status is read passively from Campuswire's own `/v1/users` responses and presence WebSocket frames. easywire never requests it.
+- Online status is read passively from Campuswire's own `/v1/users` responses and presence WebSocket frames, and unread comment counts from its socket's `ready` frame. easywire never requests either.
 - Your Campuswire auth header is read from the page's own requests and never leaves the page's JavaScript context. The extension's isolated scripts never see it.
 
 ## Architecture
