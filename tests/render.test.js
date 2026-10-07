@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle, ANONYMOUS_IMG } = require('../src/render.js');
+const { postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle, unreadOf, ANONYMOUS_IMG } = require('../src/render.js');
 
 test('postNumberFromRef', () => {
   assert.equal(postNumberFromRef('#40'), 40);
@@ -97,12 +97,24 @@ test("itemHtml shows Campuswire's anonymous icon for anonymous posts", () => {
   );
 });
 
-test('itemHtml marks unread posts like Campuswire, and treats a missing read flag as read', () => {
+test("itemHtml shows Campuswire's unread dot and new-comment badge before the pin", () => {
   const view = { time: '2 days', count: null, pinned: false };
-  const base = { id: 'u', number: 7, title: 't', body: 'b', likesCount: 0 };
-  assert.ok(itemHtml({ ...base, read: false }, view).includes('class="post-preview-wrapper d-flex align-items-start ew-item unread"'));
-  assert.ok(!itemHtml({ ...base, read: true }, view).includes('unread'));
-  assert.ok(!itemHtml(base, view).includes('unread'));
+  const post = { id: 'u', number: 7, title: 't', body: 'b', likesCount: 0 };
+  const html = itemHtml(post, { ...view, unread: true, badge: '3' });
+  assert.ok(html.includes('class="post-preview-wrapper d-flex align-items-start ew-item unread"'));
+  assert.ok(html.includes('<div class="post-preview-stats"><div class="unread-badge">3</div><button type="button" class="ew-pin'));
+  assert.ok(!itemHtml(post, { ...view, unread: false, badge: '' }).includes('unread'));
+});
+
+test("unreadOf copies Campuswire's own card when it has one, else uses fetched read state and snapshot counts", () => {
+  const post = { id: 'p1', read: false, conversationId: 'c1' };
+  const native = new Map([['p1', { unread: false, badge: '' }]]);
+  assert.deepEqual(unreadOf(post, { native, unreadCounts: { c1: 4 } }), { unread: false, badge: '' });
+  assert.deepEqual(unreadOf(post, { native: new Map(), unreadCounts: { c1: 4 } }), { unread: true, badge: '4' });
+  assert.deepEqual(unreadOf(post, { native: new Map(), unreadCounts: { c1: 120 } }).badge, '99+');
+  assert.deepEqual(unreadOf({ id: 'p2', read: true, conversationId: '' }, { native: new Map(), unreadCounts: {} }), { unread: false, badge: '' });
+  // Cached posts from before we stored `read` count as read.
+  assert.equal(unreadOf({ id: 'p3' }, { native: new Map(), unreadCounts: {} }).unread, false);
 });
 
 test('itemHtml shows the same type icon as Campuswire: pen for notes, check for resolved questions', () => {

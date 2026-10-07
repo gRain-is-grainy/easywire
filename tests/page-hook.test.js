@@ -195,3 +195,18 @@ test('hello replays every status seen so far', async () => {
   await hook.hello();
   assert.deepEqual(presenceMessages(hook).at(-1).statuses, { u1: 'active', u2: 'away' });
 });
+
+const unreadMessages = (hook) => hook.fromHook().filter((m) => m.type === 'unread');
+
+test("reads unread comment counts from Campuswire's ready frame and replays them on hello", async () => {
+  const hook = loadHook();
+  const socket = new hook.win.WebSocket('wss://example');
+  const unread = { c1: { conversationType: 'post', groupId: G, count: 3 }, c2: { conversationType: 'direct', count: 1 }, c3: {} };
+  socket.receive(JSON.stringify({ event: 'ready', data: { counts: { unreadMessages: unread } } }));
+  socket.receive(JSON.stringify({ event: 'ready', data: {} }));
+  assert.deepEqual(unreadMessages(hook).map((m) => m.counts), [{ c1: 3, c2: 1 }, {}]);
+
+  socket.receive(JSON.stringify({ event: 'ready', data: { counts: { unreadMessages: { c1: { count: 2 } } } } }));
+  await hook.hello();
+  assert.deepEqual(unreadMessages(hook).at(-1).counts, { c1: 2 });
+});

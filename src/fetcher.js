@@ -14,10 +14,27 @@
       likesCount: post.likesCount || 0,
       answered: Boolean(post.answeredAt),
       note: post.type === 'note',
-      read: post.read !== false,
+      read: Boolean(post.read), // Campuswire leaves `read` unset on unread posts
+      conversationId: post.conversationId || '', // keys Campuswire's unread-comment counts
       authorId: author.id || '',
       authorName: [author.firstName, author.lastName].filter(Boolean).join(' '),
       authorPhoto: author.photo || '',
+    };
+  }
+
+  const fullName = (author) => [author && author.firstName, author && author.lastName].filter(Boolean).join(' ');
+
+  // Full post text and replies, kept apart from the cache so rendering never loads them; read only by export.
+  function thread(post, comments) {
+    return {
+      body: String(post.body || ''),
+      comments: comments.map((comment) => ({
+        depth: comment.depth || 1,
+        answer: Boolean(comment.answer),
+        authorName: fullName(comment.author),
+        createdAt: comment.createdAt,
+        body: String(comment.body || ''),
+      })),
     };
   }
 
@@ -35,6 +52,7 @@
     let runningGroupId = null;
     const keyFor = (groupId) => `cache:${groupId}`;
     const refreshedKey = (groupId) => `refreshedAt:${groupId}`;
+    const threadsKey = (groupId) => `threads:${groupId}`;
 
     async function read(key) {
       return (await storage.get(key))[key];
@@ -44,8 +62,12 @@
       return (await read(keyFor(groupId))) || { posts: [], summaries: {} };
     }
 
-    function save(groupId, cache) {
-      return storage.set({ [keyFor(groupId)]: cache });
+    async function loadThreads(groupId) {
+      return (await read(threadsKey(groupId))) || {};
+    }
+
+    function save(groupId, cache, threads) {
+      return storage.set({ [keyFor(groupId)]: cache, [threadsKey(groupId)]: threads });
     }
 
     async function fetchAllPosts(groupId, isStale) {
@@ -121,7 +143,10 @@
       const summaries = {};
       for (const post of posts) if (cached.summaries[post.id]) summaries[post.id] = cached.summaries[post.id];
       const fresh = { posts, summaries };
-      await save(groupId, fresh);
+      const cachedThreads = await loadThreads(groupId);
+      const threads = {};
+      for (const post of posts) if (cachedThreads[post.id]) threads[post.id] = cachedThreads[post.id];
+      await save(groupId, fresh, threads);
       if (isStale()) return { stale: true };
       onUpdate(fresh);
 
@@ -130,13 +155,16 @@
       let done = 0;
       async function worker() {
         while (!paused && !isStale() && next < posts.length) {
-          const post = posts[next++];
+          const index = next++;
+          const post = posts[index];
           const response = await request(`${API}${groupId}/posts/${post.id}/comments`);
           if (isStale()) return;
           if (response.ok) {
-            fresh.summaries[post.id] = summarize(post, Array.isArray(response.data) ? response.data : []);
+            const comments = Array.isArray(response.data) ? response.data : [];
+            fresh.summaries[post.id] = summarize(post, comments);
+            threads[post.id] = thread(list.posts[index], comments);
             onUpdate(fresh);
-            if (++done % pageSize === 0) await save(groupId, fresh); // keep progress if the page reloads
+            if (++done % pageSize === 0) await save(groupId, fresh, threads); // keep progress if the page reloads
           } else if (PAUSE_STATUSES.includes(response.status)) {
             paused = true;
           }
@@ -144,7 +172,7 @@
       }
       await Promise.all(Array.from({ length: Math.min(concurrency, posts.length) }, worker));
       if (isStale()) return { stale: true };
-      await save(groupId, fresh);
+      await save(groupId, fresh, threads);
       if (paused) await pause();
       return { complete: true, paused };
     }
@@ -155,7 +183,7 @@
       runningGroupId = null;
     }
 
-    return { load, refresh, cancel };
+    return { load, loadThreads, refresh, cancel };
   }
 
   const api = { createFetcher };

@@ -8,7 +8,7 @@ Latest-activity times, reply counts, a "Recent activity" sort, and personal pins
 
 [![Chrome MV3](https://img.shields.io/badge/Chrome-Manifest_V3-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white)](manifest.json)
 [![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)](src)
-[![Node Test Runner](https://img.shields.io/badge/node_--test-64_passing-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](tests)
+[![Node Test Runner](https://img.shields.io/badge/node_--test-73_passing-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](tests)
 [![Zero Dependencies](https://img.shields.io/badge/Dependencies-0-555555?style=for-the-badge)](#architecture)
 
 [Features](#features) · [How it stays read-only](#how-it-stays-read-only) · [Architecture](#architecture) · [Getting Started](#getting-started)
@@ -30,13 +30,17 @@ easywire fetches the replies for every post in the class, works out each post's 
 - **Reply counts** —> every feed item shows its total replies at every depth, right next to the time
 - **Recent activity sort** —> a new option in Campuswire's own category dropdown that re-orders the whole class feed by latest activity
 - **Native look** —> sorted and pinned cards reuse Campuswire's layout and post-type icons (pen for notes, check for resolved questions)
-- **Avatars and presence** —> pinned and sorted cards show the author's avatar with a live online dot, plus Campuswire's unread marker
+- **Avatars and presence** —> pinned and sorted cards show the author's avatar with a live online dot, plus Campuswire's unread dot and new-comment badge
 - **Anonymous icons** —> anonymous posts get Campuswire's own anonymous avatar instead of the blank spot the page leaves, on native cards too
 
 ### Pins
 - **Personal pins** —> pin any post; pinned posts show up in a collapsible "My pins" section at the top of the feed
 - **Synced** —> pins live in `chrome.storage.sync`, per class, and follow you across browsers
 - **Self-cleaning** —> pins for deleted posts are pruned, but only after a *complete* refresh, so a failed request never wipes them
+
+### Export
+- **Copy the whole class** —> an "Export" item under "Recent activity" copies every post and its full reply thread as plain text, ready to paste into an AI chat
+- **No extra requests** —> threads are saved during the normal crawl, so the copy is instant; posts whose replies haven't loaded yet are marked
 
 ### Well-behaved
 - **Cached per class** —> posts and reply summaries are stored locally, so revisits render instantly and only refresh when needed
@@ -51,7 +55,7 @@ easywire never posts, replies, edits, reacts, marks posts viewed, or changes set
 - Only `src/page-hook.js` makes network requests, and every one passes through `EasywireGuard.isAllowedRequest` first.
 - The guard accepts `GET` requests only, and only for two URL shapes: the post list (`/v1/group/{id}/posts?number=N[&before=…]`) and a post's comments (`/v1/group/{id}/posts/{id}/comments`). Anything else is refused, including `POST`, `/viewed`, `..` segments, and look-alike hosts.
 - Fetching `/comments` doesn't mark a post viewed. That only happens when you open the post yourself.
-- Online status is read passively from Campuswire's own `/v1/users` responses and presence WebSocket frames. easywire never requests it.
+- Online status is read passively from Campuswire's own `/v1/users` responses and presence WebSocket frames, and unread comment counts from its socket's `ready` frame. easywire never requests either.
 - Your Campuswire auth header is read from the page's own requests and never leaves the page's JavaScript context. The extension's isolated scripts never see it.
 
 ## Architecture
@@ -111,7 +115,8 @@ flowchart LR
 │   ├── activity.js        #   summarize, sortByActivity, formatRelative (pure)
 │   ├── pins.js            #   Serialized pin list/toggle/prune over storage
 │   ├── fetcher.js         #   Paging, reply summaries, cache, throttle, pause
-│   ├── render.js          #   Feed decorations, My pins, sorted list, dropdown item
+│   ├── render.js          #   Feed decorations, My pins, sorted list, dropdown items
+│   ├── export.js          #   Formats posts + threads as plain text (pure)
 │   ├── content.js         #   Wires everything together
 │   ├── styles.css
 │   └── popup/             #   On/off toggle

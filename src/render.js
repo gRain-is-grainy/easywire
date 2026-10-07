@@ -11,6 +11,7 @@
     stats: '.post-preview-stats',
   };
   const RECENT_LABEL = 'Recent activity';
+  const EXPORT_LABEL = 'Export';
   const ANONYMOUS_IMG = 'https://static.campuswire.com/images/anonymous-img.svg'; // Campuswire's own anonymous icon
   let handlers = null;
   let warned = false;
@@ -65,21 +66,34 @@
     const number = Number(post.number) || 0;
     const typeIcon = typeIconHtml(post);
     const count = view.count === null ? '' : countHtml(view.count);
-    const unread = post.read === false ? ' unread' : ''; // cached posts from before we stored `read` count as read
+    const unread = view.unread ? ' unread' : '';
+    const badge = view.badge ? `<div class="unread-badge">${escapeHtml(view.badge)}</div>` : '';
     return (
       `<div role="button" tabindex="0" class="post-preview-wrapper d-flex align-items-start ew-item${unread}" data-number="${number}">` +
       `${avatarHtml(post, view.status)}<div class="post-preview">` +
       `<div class="post-title d-flex justify-content-between"><h3>${escapeHtml(post.title)}</h3><span class="post-ref">#${number}</span></div>` +
       `<div class="post-text-wrap d-flex justify-content-between align-items-center"><div class="post-text">${escapeHtml(post.body)}</div>${typeIcon}</div>` +
-      `<div class="post-preview-footer d-flex align-items-center"><div class="post-time"><span class="post-likes"><i class="far fa-thumbs-up"></i>${Number(post.likesCount) || 0}</span><i class="far fa-clock"></i>${escapeHtml(view.time)}${count}</div><div class="post-preview-stats">${pinHtml(post.id, view.pinned)}</div></div>` +
+      `<div class="post-preview-footer d-flex align-items-center"><div class="post-time"><span class="post-likes"><i class="far fa-thumbs-up"></i>${Number(post.likesCount) || 0}</span><i class="far fa-clock"></i>${escapeHtml(view.time)}${count}</div><div class="post-preview-stats">${badge}${pinHtml(post.id, view.pinned)}</div></div>` +
       '</div></div>'
     );
+  }
+
+  // Campuswire's own card for the post is always current; without one, use our fetched data and its socket snapshot.
+  function unreadOf(post, state) {
+    const live = state.native.get(post.id);
+    if (live) return live;
+    const count = state.unreadCounts[post.conversationId] || 0;
+    return {
+      unread: post.read === false, // cached posts from before we stored `read` count as read
+      badge: count > 0 ? (count <= 99 ? String(count) : '99+') : '', // same cap as Campuswire's badge
+    };
   }
 
   function viewOf(post, state) {
     const { activityOf, formatRelative } = root.EasywireActivity;
     const summary = state.summaries[post.id];
     return {
+      ...unreadOf(post, state),
       time: formatRelative(activityOf(post, state.summaries), state.now),
       count: summary ? summary.replyCount : null,
       pinned: state.pinnedIds.includes(post.id),
@@ -149,6 +163,8 @@
     // Post numbers are per class: a title mismatch means our data is for another class, so leave the item alone.
     const titleText = item.querySelector(SELECTORS.titleText);
     if (titleText && !sameTitle(titleText.textContent, post.title)) return;
+    const badge = item.querySelector(`${SELECTORS.stats} > .unread-badge`);
+    state.native.set(post.id, { unread: item.classList.contains('unread'), badge: badge ? badge.textContent : '' });
     const view = viewOf(post, state);
     const time = item.querySelector(SELECTORS.time);
     if (time) {
@@ -163,6 +179,11 @@
   function onMenuClick(event) {
     const li = event.target.closest('li[data-content]');
     if (!li) return;
+    if (li.classList.contains('ew-export')) {
+      event.stopPropagation(); // keep the menu open so the "Copied" label shows
+      handlers.onExport();
+      return;
+    }
     if (!li.classList.contains('ew-recent')) {
       handlers.onSortOff();
       return;
@@ -191,6 +212,15 @@
       ? 'Activity data paused (Campuswire refused requests); showing cached data'
       : 'Sort all posts by latest post or reply';
     if (li.title !== title) li.title = title;
+
+    let exportLi = menu.querySelector(':scope > .ew-export');
+    if (!exportLi) {
+      li.insertAdjacentHTML('afterend', '<li data-content="true" class="ew-export" title="Copy every post and its replies as text"><i class="far fa-copy"></i><span></span></li>');
+      exportLi = li.nextElementSibling;
+    }
+    const label = exportLi.lastElementChild;
+    const text = state.exportStatus || EXPORT_LABEL;
+    if (label.textContent !== text) label.textContent = text;
   }
 
   // Shows "Recent activity" on Campuswire's dropdown button while sorted; restores its label otherwise.
@@ -275,15 +305,16 @@
     ensureMenuItem(state);
     setCategoryLabel(categoryButton, state.sorted);
     const byNumber = new Map(state.posts.map((post) => [post.number, post]));
-    for (const item of nativeList.querySelectorAll(SELECTORS.item)) decorateNative(item, byNumber, state);
-    renderRoot(nativeList, state);
+    const live = { ...state, native: new Map() }; // native: post id -> unread dot and badge on Campuswire's own card
+    for (const item of nativeList.querySelectorAll(SELECTORS.item)) decorateNative(item, byNumber, live);
+    renderRoot(nativeList, live);
     const display = state.sorted && state.posts.length ? 'none' : '';
     if (nativeList.style.display !== display) nativeList.style.display = display;
   }
 
   // Undo everything render() added so the page looks like plain Campuswire.
   function teardown() {
-    for (const el of document.querySelectorAll('.ew-root, .ew-recent, .ew-pin, .ew-count')) el.remove();
+    for (const el of document.querySelectorAll('.ew-root, .ew-recent, .ew-export, .ew-pin, .ew-count')) el.remove();
     const categoryButton = document.querySelector(SELECTORS.categoryButton);
     if (categoryButton) setCategoryLabel(categoryButton, false);
     for (const time of document.querySelectorAll('[data-ew-original]')) {
@@ -313,7 +344,7 @@
     if (slug) location.assign(`/c/${slug}/feed/${number}`);
   }
 
-  const api = { SELECTORS, ANONYMOUS_IMG, render, teardown, openPost, postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle };
+  const api = { SELECTORS, ANONYMOUS_IMG, render, teardown, openPost, postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle, unreadOf };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.EasywireRender = api;
 })(globalThis);

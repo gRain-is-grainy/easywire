@@ -5,6 +5,7 @@
   let auth = null;
   let lastFeedGroupId = null;
   const presence = {}; // userId -> Campuswire presence status, replayed on hello
+  let unreadCounts = null; // conversationId -> unread comment count from the latest ready frame, replayed on hello
 
   function toContent(message) {
     window.postMessage({ source: 'easywire-page', ...message }, location.origin);
@@ -32,10 +33,25 @@
     }
   }
 
+  // Campuswire's own snapshot of unread comments per conversation, sent on every socket (re)connect.
+  function sawReady(data) {
+    const unread = (data && data.counts && data.counts.unreadMessages) || {};
+    unreadCounts = {};
+    for (const [conversationId, entry] of Object.entries(unread)) {
+      if (entry && typeof entry.count === 'number') unreadCounts[conversationId] = entry.count;
+    }
+    toContent({ type: 'unread', counts: unreadCounts });
+  }
+
   function onSocketMessage(event) {
     try {
       // Check the prefix first so we don't parse every chat frame.
-      if (typeof event.data !== 'string' || !event.data.startsWith('{"event":"presence-changed"')) return;
+      if (typeof event.data !== 'string') return;
+      if (event.data.startsWith('{"event":"ready"')) {
+        sawReady(JSON.parse(event.data).data);
+        return;
+      }
+      if (!event.data.startsWith('{"event":"presence-changed"')) return;
       const { data } = JSON.parse(event.data);
       if (data && data.user) sawUsers([data.user]);
     } catch (_) {
@@ -112,6 +128,7 @@
     if (data.type === 'hello') {
       if (lastFeedGroupId) toContent({ type: 'feed', groupId: lastFeedGroupId });
       if (Object.keys(presence).length) toContent({ type: 'presence', statuses: { ...presence } });
+      if (unreadCounts) toContent({ type: 'unread', counts: unreadCounts });
       return;
     }
     if (data.type !== 'request') return;

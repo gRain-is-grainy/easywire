@@ -2,6 +2,7 @@
   const { createFetcher } = globalThis.EasywireFetcher;
   const { createPins } = globalThis.EasywirePins;
   const Render = globalThis.EasywireRender;
+  const { formatExport } = globalThis.EasywireExport;
   const REQUEST_TIMEOUT_MS = 15 * 1000;
 
   const state = {
@@ -13,7 +14,10 @@
     paused: false,
     enabled: false, // set from storage at startup; the toolbar popup flips it
     presence: {}, // userId -> status, from Campuswire's own traffic via page-hook.js
+    unreadCounts: {}, // conversationId -> unread comments, from Campuswire's socket snapshot via page-hook.js
+    exportStatus: '', // shown in place of "Export" for a moment after a copy
   };
+  let exportTimer = null;
   let feedGroupId = null; // last class Campuswire's feed loaded, so switching on can fetch it
 
   // --- bridge to page-hook.js (MAIN world) ---
@@ -49,6 +53,9 @@
       if (state.enabled) onFeed(data.groupId);
     } else if (data.type === 'presence') {
       Object.assign(state.presence, data.statuses);
+      schedule();
+    } else if (data.type === 'unread') {
+      state.unreadCounts = data.counts;
       schedule();
     }
   });
@@ -116,6 +123,26 @@
     onOpen(number) {
       Render.openPost(number);
     },
+    // Copies from stored threads only; nothing is fetched, so the click still counts as a user gesture.
+    async onExport() {
+      const groupId = state.groupId;
+      if (!groupId) return;
+      const threads = await fetcher.loadThreads(groupId);
+      const { text, postCount, missingCount } = formatExport(state.cache.posts, threads, Date.now());
+      try {
+        await navigator.clipboard.writeText(text);
+        state.exportStatus = `Copied ${postCount} posts` + (missingCount ? ` (${missingCount} without replies)` : '');
+      } catch (error) {
+        console.warn('[easywire] Could not copy export:', error);
+        state.exportStatus = 'Copy failed';
+      }
+      schedule();
+      clearTimeout(exportTimer);
+      exportTimer = setTimeout(() => {
+        state.exportStatus = '';
+        schedule();
+      }, 2500);
+    },
   };
 
   let scheduled = false;
@@ -134,6 +161,8 @@
           collapsed: state.collapsed,
           paused: state.paused,
           presence: state.presence,
+          unreadCounts: state.unreadCounts,
+          exportStatus: state.exportStatus,
           now: Date.now(),
         },
         handlers
@@ -150,7 +179,7 @@
 
   new MutationObserver((records) => {
     if (records.some(touchesFeed)) schedule();
-  }).observe(document.body, { childList: true, subtree: true, characterData: true });
+  }).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class'] }); // class: Campuswire's unread dot
   setInterval(schedule, 60 * 1000); // keep relative times current; no network
 
   // page-hook.js still loads while off (manifest scripts can't be switched off), but it only answers our requests.
