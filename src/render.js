@@ -16,6 +16,13 @@
   let handlers = null;
   let warned = false;
   let selecting = false; // mirrors state.selecting for the document-level handlers below
+  let selectedIds = []; // mirrors state.selectedIds, the base a drag starts from
+  let copying = false; // mirrors Boolean(state.selectStatus)
+  let drag = null; // the drag-select in progress
+  let swallowClick = false;
+  const DRAG_EDGE = 40; // px from the feed's top or bottom where a drag auto-scrolls
+  const DRAG_SPEED = 20; // px per frame at the very edge
+  const DRAG_SLOP = 5; // px the pointer may wander during a plain click
 
   function postNumberFromRef(text) {
     const match = /#(\d+)/.exec(text || '');
@@ -256,6 +263,103 @@
     if (box) handlers.onToggleSelect(box.dataset.postId);
   }
 
+  // Always recomputed from the selection at mousedown, so shrinking the range restores what was outside it.
+  function dragSelection(baseIds, rangeIds, mode) {
+    if (mode === 'deselect') return baseIds.filter((id) => !rangeIds.includes(id));
+    return [...new Set([...baseIds, ...rangeIds])];
+  }
+
+  const DRAG_CARDS = `${SELECTORS.nativeList} ${SELECTORS.item}, .ew-root .ew-item`;
+  const idOf = (card) => card.querySelector('.ew-select [data-post-id]')?.dataset.postId;
+  const listCards = (list) => [...list.querySelectorAll(SELECTORS.item)].filter(idOf);
+
+  function cardAt(el) {
+    const card = el instanceof Element ? el.closest(DRAG_CARDS) : null;
+    return card && idOf(card) ? card : null;
+  }
+
+  const edgeSpeed = (distance) => (distance < DRAG_EDGE ? Math.ceil(DRAG_SPEED * Math.min(1, (DRAG_EDGE - distance) / DRAG_EDGE)) : 0);
+
+  // Scrolls when near the feed's top or bottom, then sets every card between the start card and the one under the pointer.
+  function stepDrag(scroll) {
+    if (!drag.list.isConnected) return endDrag(); // Campuswire replaced the list
+    // Until the pointer really moves, it's a press for a plain click: don't scroll it away from the card.
+    if (!drag.moved && Math.hypot(drag.x - drag.startX, drag.y - drag.startY) <= DRAG_SLOP) return;
+    const scroller = drag.list.parentElement;
+    const rect = scroller.getBoundingClientRect();
+    const dock = scroller.querySelector(':scope > .ew-select-dock');
+    const top = dock ? Math.max(rect.top, dock.getBoundingClientRect().bottom) : rect.top; // the sticky bar covers the feed's top
+    if (scroll) scroller.scrollTop += edgeSpeed(rect.bottom - drag.y) - edgeSpeed(drag.y - top);
+    // Past an edge (or over the bar) the card at the edge counts, so the range keeps growing while it scrolls.
+    const card = cardAt(document.elementFromPoint(drag.x, Math.min(Math.max(drag.y, top), rect.bottom - 1)));
+    if (!card || !drag.list.contains(card)) return;
+    const cards = listCards(drag.list); // re-queried: .ew-root re-renders on every selection change
+    const index = cards.indexOf(card);
+    if (index === drag.index) return;
+    drag.index = index;
+    drag.moved = true;
+    const range = cards.slice(Math.min(index, drag.start), Math.max(index, drag.start) + 1);
+    handlers.onSetSelection(dragSelection(drag.base, range.map(idOf), drag.mode));
+  }
+
+  function onDragFrame() {
+    stepDrag(true);
+    if (drag) drag.frame = requestAnimationFrame(onDragFrame);
+  }
+
+  function onDragMove(event) {
+    if (!(event.buttons & 1)) return onDragEnd(event); // the mouseup was lost (e.g. released outside the window)
+    drag.x = event.clientX;
+    drag.y = event.clientY;
+  }
+
+  function onDragEnd(event) {
+    const current = drag; // stepDrag may end the drag
+    current.x = event.clientX;
+    current.y = event.clientY;
+    stepDrag(false);
+    if (current.moved) {
+      swallowClick = true;
+      setTimeout(() => (swallowClick = false));
+    }
+    endDrag();
+  }
+
+  function endDrag() {
+    if (!drag) return;
+    cancelAnimationFrame(drag.frame);
+    document.removeEventListener('mousemove', onDragMove);
+    document.removeEventListener('mouseup', onDragEnd);
+    window.removeEventListener('blur', endDrag);
+    drag = null;
+  }
+
+  // Press on a card and drag across others to select (or deselect, if it started selected) the whole run.
+  function onDragStart(event) {
+    swallowClick = false;
+    if (!selecting || copying || event.button !== 0 || drag) return;
+    const card = cardAt(event.target);
+    if (!card) return;
+    event.preventDefault(); // no text selection; Campuswire's cards have no mousedown handlers
+    const list = card.closest('.posts-list-wrap');
+    const start = listCards(list).indexOf(card);
+    const mode = selectedIds.includes(idOf(card)) ? 'deselect' : 'select';
+    const { clientX: x, clientY: y } = event;
+    drag = { list, start, index: start, base: selectedIds, mode, x, y, startX: x, startY: y, moved: false };
+    drag.frame = requestAnimationFrame(onDragFrame);
+    document.addEventListener('mousemove', onDragMove);
+    document.addEventListener('mouseup', onDragEnd);
+    window.addEventListener('blur', endDrag);
+  }
+
+  // A drag ends with a click on whatever was under the pointer; it must never reach Campuswire or toggle a card.
+  function onClickAfterDrag(event) {
+    if (!swallowClick) return;
+    swallowClick = false;
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
   function closeMenu() {
     const button = document.querySelector(SELECTORS.categoryButton);
     if (button) button.click(); // closes Campuswire's menu
@@ -481,8 +585,17 @@
     }
     ensureMenuItem(state);
     selecting = state.selecting;
+    selectedIds = state.selectedIds;
+    copying = Boolean(state.selectStatus);
+    if (!selecting && drag) {
+      // Its mouseup comes later, with selection mode off: keep the swallow armed until that click or the next mousedown.
+      if (drag.moved) swallowClick = true;
+      endDrag();
+    }
     document.addEventListener('click', onNativeCard, true); // same function, so re-adding is a no-op
     document.addEventListener('keydown', onNativeCard, true);
+    document.addEventListener('mousedown', onDragStart, true);
+    window.addEventListener('click', onClickAfterDrag, true); // window capture runs before anything else
     setCategoryLabel(categoryButton, state.sorted);
     const byNumber = new Map(state.posts.map((post) => [post.number, post]));
     const live = { ...state, native: new Map() }; // native: post id -> unread dot and badge on Campuswire's own card
@@ -497,6 +610,7 @@
     for (const el of document.querySelectorAll('.ew-root, .ew-select-dock, .ew-recent, .ew-export, .ew-pin, .ew-count, .ew-select, .ew-export-dialog')) el.remove();
     for (const item of document.querySelectorAll('.ew-selected')) item.classList.remove('ew-selected');
     selecting = false;
+    endDrag();
     const categoryButton = document.querySelector(SELECTORS.categoryButton);
     if (categoryButton) setCategoryLabel(categoryButton, false);
     for (const time of document.querySelectorAll('[data-ew-original]')) {
@@ -526,7 +640,7 @@
     if (slug) location.assign(`/c/${slug}/feed/${number}`);
   }
 
-  const api = { SELECTORS, ANONYMOUS_IMG, render, teardown, openPost, postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle, unreadOf, selectHtml, selectBarHtml, exportModalView, EXPORT_MODAL_HTML };
+  const api = { SELECTORS, ANONYMOUS_IMG, render, teardown, openPost, postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle, unreadOf, selectHtml, selectBarHtml, exportModalView, EXPORT_MODAL_HTML, dragSelection };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.EasywireRender = api;
 })(globalThis);

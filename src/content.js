@@ -228,6 +228,11 @@
       state.selectedIds = state.selectedIds.includes(postId) ? state.selectedIds.filter((id) => id !== postId) : [...state.selectedIds, postId];
       schedule();
     },
+    onSetSelection(ids) {
+      if (!state.selecting || state.selectStatus) return;
+      state.selectedIds = ids;
+      schedule();
+    },
     async onCopySelected() {
       if (state.selectStatus) return;
       const posts = filterPosts(state.cache.posts, { selectedIds: state.selectedIds });

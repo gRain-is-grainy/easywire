@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle, unreadOf, ANONYMOUS_IMG, selectHtml, selectBarHtml, exportModalView, EXPORT_MODAL_HTML } = require('../src/render.js');
+const { postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle, unreadOf, ANONYMOUS_IMG, selectHtml, selectBarHtml, exportModalView, EXPORT_MODAL_HTML, dragSelection } = require('../src/render.js');
 
 test('postNumberFromRef', () => {
   assert.equal(postNumberFromRef('#40'), 40);
@@ -181,4 +181,35 @@ test('the Export modal is a labelled dialog built from Campuswire modal classes'
   assert.ok(EXPORT_MODAL_HTML.includes('<div class="ew-export-count" aria-live="polite"></div>'));
   assert.ok(EXPORT_MODAL_HTML.includes('class="btn btn-outline ew-export-select">Select posts</button><button type="button" class="btn btn-primary ew-export-all"></button>'));
   assert.ok(!/style=/.test(EXPORT_MODAL_HTML)); // Campuswire's CSP blocks inline styles
+});
+
+test('dragSelection select: base first, then range ids not already in base, in range order', () => {
+  assert.deepEqual(dragSelection(['a', 'c'], ['b', 'c', 'd'], 'select'), ['a', 'c', 'b', 'd']);
+});
+
+test('dragSelection deselect: removes range ids, keeps base order', () => {
+  assert.deepEqual(dragSelection(['a', 'b', 'c', 'd'], ['d', 'b'], 'deselect'), ['a', 'c']);
+});
+
+test('dragSelection: shrinking the range recomputes from the base, restoring ids outside it', () => {
+  const base = ['a'];
+  assert.deepEqual(dragSelection(base, ['b', 'c', 'd'], 'select'), ['a', 'b', 'c', 'd']);
+  assert.deepEqual(dragSelection(base, ['b'], 'select'), ['a', 'b']);
+  const selected = ['a', 'b', 'c'];
+  assert.deepEqual(dragSelection(selected, ['b', 'c'], 'deselect'), ['a']);
+  assert.deepEqual(dragSelection(selected, ['b'], 'deselect'), ['a', 'c']);
+});
+
+test('dragSelection: empty range returns a copy of base; inputs are not mutated', () => {
+  const base = ['a', 'b'];
+  for (const mode of ['select', 'deselect']) {
+    const result = dragSelection(base, [], mode);
+    assert.deepEqual(result, ['a', 'b']);
+    assert.notEqual(result, base);
+  }
+  const range = ['b', 'c'];
+  dragSelection(base, range, 'select');
+  dragSelection(base, range, 'deselect');
+  assert.deepEqual(base, ['a', 'b']);
+  assert.deepEqual(range, ['b', 'c']);
 });
