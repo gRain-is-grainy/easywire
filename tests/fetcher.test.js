@@ -384,3 +384,46 @@ test('slim posts record read state, conversation and author id, name and photo',
   assert.equal(b.authorName, '');
   assert.equal(b.authorPhoto, '');
 });
+
+test('stores each full thread separately from the cache, for export', async () => {
+  const [post] = makePosts(1);
+  post.body = 'x'.repeat(500);
+  const comments = {
+    p1: [
+      { depth: 1, answer: true, author: { firstName: 'Raj', lastName: 'Venkat' }, createdAt: '2026-09-10T00:00:00Z', body: 'Yes.' },
+      { depth: 2, body: 'Thanks', createdAt: '2026-09-11T00:00:00Z' }, // anonymous: no author
+    ],
+  };
+  const storage = fakeStorage();
+  const fetcher = createFetcher({ request: fakeApi({ posts: [post], comments }).request, storage });
+  await fetcher.refresh(G, () => {});
+
+  assert.deepEqual(await fetcher.loadThreads(G), {
+    p1: {
+      body: 'x'.repeat(500),
+      comments: [
+        { depth: 1, answer: true, authorName: 'Raj Venkat', createdAt: '2026-09-10T00:00:00Z', body: 'Yes.' },
+        { depth: 2, answer: false, authorName: '', createdAt: '2026-09-11T00:00:00Z', body: 'Thanks' },
+      ],
+    },
+  });
+  assert.deepEqual(Object.keys(storage.data[`cache:${G}`]), ['posts', 'summaries']);
+});
+
+test('a failed comments request keeps the cached thread; deleted posts lose theirs', async () => {
+  const posts = makePosts(2);
+  const old = { body: 'old', comments: [] };
+  const storage = fakeStorage({ [`threads:${G}`]: { p2: old, gone: old } });
+  const api = fakeApi({ posts, status: { 'posts/p2/comments': 500 } });
+  await createFetcher({ request: api.request, storage }).refresh(G, () => {});
+
+  assert.deepEqual(await createFetcher({ request: api.request, storage }).loadThreads(G), {
+    p2: old,
+    p1: { body: 'B1', comments: [] },
+  });
+});
+
+test('loadThreads is empty for a class never crawled', async () => {
+  const fetcher = createFetcher({ request: fakeApi({ posts: [] }).request, storage: fakeStorage() });
+  assert.deepEqual(await fetcher.loadThreads(G), {});
+});

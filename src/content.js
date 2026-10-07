@@ -2,6 +2,7 @@
   const { createFetcher } = globalThis.EasywireFetcher;
   const { createPins } = globalThis.EasywirePins;
   const Render = globalThis.EasywireRender;
+  const { formatExport } = globalThis.EasywireExport;
   const REQUEST_TIMEOUT_MS = 15 * 1000;
 
   const state = {
@@ -14,7 +15,9 @@
     enabled: false, // set from storage at startup; the toolbar popup flips it
     presence: {}, // userId -> status, from Campuswire's own traffic via page-hook.js
     unreadCounts: {}, // conversationId -> unread comments, from Campuswire's socket snapshot via page-hook.js
+    exportStatus: '', // shown in place of "Export" for a moment after a copy
   };
+  let exportTimer = null;
   let feedGroupId = null; // last class Campuswire's feed loaded, so switching on can fetch it
 
   // --- bridge to page-hook.js (MAIN world) ---
@@ -120,6 +123,26 @@
     onOpen(number) {
       Render.openPost(number);
     },
+    // Copies from stored threads only; nothing is fetched, so the click still counts as a user gesture.
+    async onExport() {
+      const groupId = state.groupId;
+      if (!groupId) return;
+      const threads = await fetcher.loadThreads(groupId);
+      const { text, postCount, missingCount } = formatExport(state.cache.posts, threads, Date.now());
+      try {
+        await navigator.clipboard.writeText(text);
+        state.exportStatus = `Copied ${postCount} posts` + (missingCount ? ` (${missingCount} without replies)` : '');
+      } catch (error) {
+        console.warn('[easywire] Could not copy export:', error);
+        state.exportStatus = 'Copy failed';
+      }
+      schedule();
+      clearTimeout(exportTimer);
+      exportTimer = setTimeout(() => {
+        state.exportStatus = '';
+        schedule();
+      }, 2500);
+    },
   };
 
   let scheduled = false;
@@ -139,6 +162,7 @@
           paused: state.paused,
           presence: state.presence,
           unreadCounts: state.unreadCounts,
+          exportStatus: state.exportStatus,
           now: Date.now(),
         },
         handlers

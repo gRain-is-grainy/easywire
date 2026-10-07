@@ -11,6 +11,7 @@
     stats: '.post-preview-stats',
   };
   const RECENT_LABEL = 'Recent activity';
+  const EXPORT_LABEL = 'Export';
   const ANONYMOUS_IMG = 'https://static.campuswire.com/images/anonymous-img.svg'; // Campuswire's own anonymous icon
   let handlers = null;
   let warned = false;
@@ -178,6 +179,11 @@
   function onMenuClick(event) {
     const li = event.target.closest('li[data-content]');
     if (!li) return;
+    if (li.classList.contains('ew-export')) {
+      event.stopPropagation(); // keep the menu open so the "Copied" label shows
+      handlers.onExport();
+      return;
+    }
     if (!li.classList.contains('ew-recent')) {
       handlers.onSortOff();
       return;
@@ -206,6 +212,15 @@
       ? 'Activity data paused (Campuswire refused requests); showing cached data'
       : 'Sort all posts by latest post or reply';
     if (li.title !== title) li.title = title;
+
+    let exportLi = menu.querySelector(':scope > .ew-export');
+    if (!exportLi) {
+      li.insertAdjacentHTML('afterend', '<li data-content="true" class="ew-export" title="Copy every post and its replies as text"><i class="far fa-copy"></i><span></span></li>');
+      exportLi = li.nextElementSibling;
+    }
+    const label = exportLi.lastElementChild;
+    const text = state.exportStatus || EXPORT_LABEL;
+    if (label.textContent !== text) label.textContent = text;
   }
 
   // Shows "Recent activity" on Campuswire's dropdown button while sorted; restores its label otherwise.
@@ -299,7 +314,7 @@
 
   // Undo everything render() added so the page looks like plain Campuswire.
   function teardown() {
-    for (const el of document.querySelectorAll('.ew-root, .ew-recent, .ew-pin, .ew-count')) el.remove();
+    for (const el of document.querySelectorAll('.ew-root, .ew-recent, .ew-export, .ew-pin, .ew-count')) el.remove();
     const categoryButton = document.querySelector(SELECTORS.categoryButton);
     if (categoryButton) setCategoryLabel(categoryButton, false);
     for (const time of document.querySelectorAll('[data-ew-original]')) {
