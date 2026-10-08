@@ -5,10 +5,19 @@
     <style>
       body { font: 14px system-ui, sans-serif; margin: 12px 16px; white-space: nowrap; }
       label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+      #update { margin-top: 10px; line-height: 1.5; }
+      code { font-size: 12px; }
+      button { margin-top: 6px; font: inherit; cursor: pointer; }
     </style>
   </head>
   <body>
     <label><input type="checkbox" id="enabled" /> easywire on</label>
+    <div id="update" hidden>
+      <div>Update available: <b id="update-version"></b></div>
+      <div>Run <code>git pull</code> in the easywire folder,<br />click Reload, then refresh Campuswire.</div>
+      <button id="reload">Reload extension</button>
+    </div>
+    <script src="version.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

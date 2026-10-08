@@ -8,7 +8,7 @@ Latest-activity times, reply counts, a "Recent activity" sort, and personal pins
 
 [![Chrome MV3](https://img.shields.io/badge/Chrome-Manifest_V3-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white)](manifest.json)
 [![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)](src)
-[![Node Test Runner](https://img.shields.io/badge/node_--test-92_passing-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](tests)
+[![Node Test Runner](https://img.shields.io/badge/node_--test-96_passing-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](tests)
 [![Zero Dependencies](https://img.shields.io/badge/Dependencies-0-555555?style=for-the-badge)](#architecture)
 
 [Features](#features) · [How it stays read-only](#how-it-stays-read-only) · [Architecture](#architecture) · [Getting Started](#getting-started)
@@ -51,6 +51,7 @@ easywire fetches the replies for every post in the class, works out each post's 
 - **Throttled** —> at most 3 concurrent requests and one refresh per class per minute; the throttle survives reloads
 - **Backs off** —> a 401 or 429 from Campuswire pauses all fetching for 10 minutes
 - **On/off switch** —> the toolbar popup turns easywire off instantly, cancels any in-flight crawl, and removes all of its UI
+- **Update notice** —> the popup checks `main`'s manifest on GitHub and, when a newer version is out, shows it with a Reload button
 
 ## How it stays read-only
 
@@ -125,7 +126,7 @@ flowchart LR
 │   ├── export.js          #   Formats posts + threads as plain text (pure)
 │   ├── content.js         #   Wires everything together
 │   ├── styles.css
-│   └── popup/             #   On/off toggle
+│   └── popup/             #   On/off toggle, update notice + reload
 └── tests/                 # One test file per pure module + renderer
 ```
 
@@ -147,6 +148,10 @@ flowchart LR
 4. Open any class feed on [campuswire.com](https://campuswire.com). Activity times and reply counts fill in as the first crawl finishes.
 
 To pick up code changes, hit the reload button on the extension card and refresh Campuswire.
+
+### Updating
+
+When the toolbar popup says **Update available**, run `git pull` in the `easywire` folder, click **Reload extension** in the popup, then refresh Campuswire. Releases bump `version` in `manifest.json`, which is what the popup compares against.
 
 ### Tests
 
