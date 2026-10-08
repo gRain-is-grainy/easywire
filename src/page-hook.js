@@ -51,6 +51,11 @@
         sawReady(JSON.parse(event.data).data);
         return;
       }
+      if (event.data.startsWith('{"event":"wall-post-deleted"')) {
+        const { data } = JSON.parse(event.data);
+        if (data && data.id && data.group) toContent({ type: 'post-deleted', groupId: data.group, postId: data.id });
+        return;
+      }
       if (!event.data.startsWith('{"event":"presence-changed"')) return;
       const { data } = JSON.parse(event.data);
       if (data && data.user) sawUsers([data.user]);

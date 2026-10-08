@@ -38,3 +38,97 @@
 .ew-root[hidden] {
   display: none;
 }
+
+/* Export modal: Campuswire's modal classes give the look; this shows, stacks and sizes it, and fills gaps those classes leave. */
+.ew-export-modal.modal {
+  display: block;
+  z-index: 1041; /* Campuswire's .modal is 999, under its own 1040 backdrop; its dialogs sit at 1041 */
+}
+.ew-export-modal .modal-dialog {
+  max-width: 400px;
+  width: calc(100% - 32px);
+  margin-left: auto; /* only center sideways; Bootstrap's vertical margin keeps it centered */
+  margin-right: auto;
+}
+.ew-export-modal .modal-content {
+  border: 0;
+  border-radius: 10px; /* like Campuswire's own dialogs (.modal-wrap-contents) */
+}
+/* Campuswire has no generic dark modal; #191a1b is what its own dark dialogs use. */
+body.theme-dark .ew-export-modal .modal-content {
+  background-color: #191a1b;
+}
+body.theme-dark .ew-export-dates .form-control {
+  color-scheme: dark; /* light calendar icon */
+}
+.ew-export-label,
+.ew-export-count {
+  font-size: 12px;
+  color: #787f85;
+}
+.ew-export-label {
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+.ew-export-count {
+  margin-top: 10px;
+}
+.ew-export-dates {
+  gap: 8px;
+}
+.ew-export-dates .form-control {
+  flex: 1;
+  min-width: 0;
+}
+/* Selection mode */
+.ew-select-dock {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #fff;
+}
+body.theme-dark .ew-select-dock {
+  background: #191a1b;
+}
+.ew-select-bar {
+  gap: 8px;
+  padding: 12px 6px 12px 15px; /* lines up with the category button on the left and the cards on the right */
+}
+.ew-select-count {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 500;
+}
+.ew-select-bar .btn {
+  height: 28px;
+  padding: 0 13px;
+  border-radius: 100px;
+}
+.post-preview-wrapper.ew-selected {
+  background: rgba(79, 80, 255, 0.08);
+}
+body.theme-dark .post-preview-wrapper.ew-selected {
+  background: rgba(79, 80, 255, 0.16); /* 0.08 barely shows on the dark feed */
+}
+/* Selection checkbox: 16px (same as the resolved icon), centered under the avatar */
+.ew-select.custom-control {
+  width: 16px;
+  min-height: 16px;
+  margin: 8px auto 0;
+  padding: 0;
+}
+.ew-select .custom-control-label {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+.ew-select .custom-control-label::before,
+.ew-select .custom-control-label::after {
+  top: 0;
+  left: 0;
+  width: 16px;
+  height: 16px;
+}
+.ew-select .custom-control-label::before {
+  border-radius: 4px;
+}
