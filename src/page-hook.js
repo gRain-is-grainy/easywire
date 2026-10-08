@@ -43,6 +43,22 @@
     toContent({ type: 'unread', counts: unreadCounts });
   }
 
+  // Campuswire's live wall events, reduced to what changed: a post to merge, a post whose replies changed, or a flag.
+  const WALL_EVENTS = {
+    'wall-post-created': (data) => ({ post: data }),
+    'wall-post-updated': (data) => ({ post: data }),
+    'wall-post-answered': (data) => ({ postId: data.post }),
+    'wall-post-comment-replied': (data) => ({ postId: data.post }),
+    'wall-post-answer-updated': (data) => ({ postId: data.post }),
+    'wall-post-answer-deleted': (data) => ({ postId: data.answer && data.answer.post }),
+    'wall-post-comment-deleted': (data) => ({ postId: data.comment && data.comment.post }),
+    'wall-post-read': (data) => ({ postId: data.postId, changes: { read: true } }),
+    'wall-post-unread': (data) => ({ postId: data.postId, changes: { read: false } }),
+    'question-resolved': (data) => ({ postId: data.postId, changes: { answered: true } }),
+    'question-unresolved': (data) => ({ postId: data.postId, changes: { answered: false } }),
+  };
+  const EVENT_NAME = /^\{"event":"([a-z-]+)"/;
+
   function onSocketMessage(event) {
     try {
       // Check the prefix first so we don't parse every chat frame.
@@ -54,6 +70,13 @@
       if (event.data.startsWith('{"event":"wall-post-deleted"')) {
         const { data } = JSON.parse(event.data);
         if (data && data.id && data.group) toContent({ type: 'post-deleted', groupId: data.group, postId: data.id });
+        return;
+      }
+      const name = (EVENT_NAME.exec(event.data) || [])[1];
+      if (WALL_EVENTS.hasOwnProperty(name)) {
+        const { data } = JSON.parse(event.data);
+        const change = data && WALL_EVENTS[name](data);
+        if (change && ((change.post && change.post.id) || change.postId)) toContent({ type: 'wall', ...change });
         return;
       }
       if (!event.data.startsWith('{"event":"presence-changed"')) return;

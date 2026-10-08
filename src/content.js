@@ -2,6 +2,7 @@
   const { createFetcher } = globalThis.EasywireFetcher;
   const { createPins } = globalThis.EasywirePins;
   const Render = globalThis.EasywireRender;
+  const Resize = globalThis.EasywireResize;
   const { formatExport, filterPosts } = globalThis.EasywireExport;
   const REQUEST_TIMEOUT_MS = 15 * 1000;
 
@@ -12,6 +13,7 @@
     sorted: false,
     searchSorted: false, // "Recent activity" in the search modal's menu; in memory only
     collapsed: false,
+    feedWidth: null, // px, from dragging the feed's right edge; null keeps Campuswire's width
     paused: false,
     enabled: false, // set from storage at startup; the toolbar popup flips it
     presence: {}, // userId -> status, from Campuswire's own traffic via page-hook.js
@@ -26,6 +28,9 @@
   };
   let exportTimer = null, modalTimer = null, selectTimer = null;
   let feedGroupId = null; // last class Campuswire's feed loaded, so switching on can fetch it
+  let sawReady = false; // a later socket `ready` is a reconnect, which may have missed live events
+  const commentTimers = new Map(); // postId -> pending re-read, so a burst of replies costs one request
+  const COMMENT_DELAY_MS = 2000;
 
   // --- bridge to page-hook.js (MAIN world) ---
   let nextRequestId = 0;
@@ -63,9 +68,13 @@
       schedule();
     } else if (data.type === 'unread') {
       state.unreadCounts = data.counts;
+      if (sawReady && state.enabled && state.groupId) onFeed(state.groupId); // throttled like any refresh
+      sawReady = true;
       schedule();
     } else if (data.type === 'post-deleted') {
       onPostDeleted(data.groupId, data.postId);
+    } else if (data.type === 'wall') {
+      if (state.enabled) onWall(data);
     }
   });
 
@@ -106,8 +115,40 @@
     schedule();
   }
 
+  // Campuswire's socket said a post was created or edited, its replies changed, or it was read or resolved.
+  function onWall({ post, postId, changes }) {
+    const groupId = state.groupId;
+    if (!groupId) return;
+    const show = (update) =>
+      update
+        .then((cache) => {
+          if (cache && state.groupId === groupId) {
+            state.cache = cache;
+            schedule();
+          }
+        })
+        .catch((error) => console.warn('[easywire] Could not apply live update:', error));
+    if (post) {
+      if (post.group === groupId || state.cache.posts.some((p) => p.id === post.id)) show(fetcher.upsertPost(groupId, post));
+      return;
+    }
+    if (!state.cache.posts.some((p) => p.id === postId)) return; // another class's post, or one we haven't loaded
+    if (changes) {
+      show(fetcher.patchPost(groupId, postId, changes));
+      return;
+    }
+    clearTimeout(commentTimers.get(postId));
+    commentTimers.set(
+      postId,
+      setTimeout(() => {
+        commentTimers.delete(postId);
+        if (state.enabled && state.groupId === groupId) show(fetcher.refreshComments(groupId, postId));
+      }, COMMENT_DELAY_MS)
+    );
+  }
+
   function saveUi() {
-    chrome.storage.local.set({ ui: { sorted: state.sorted, collapsed: state.collapsed } });
+    chrome.storage.local.set({ ui: { sorted: state.sorted, collapsed: state.collapsed, feedWidth: state.feedWidth } });
   }
 
   // Copies from stored threads only; nothing is fetched, so the click still counts as a user gesture.
@@ -179,6 +220,10 @@
       if (!state.searchSorted) return;
       state.searchSorted = false;
       schedule();
+    },
+    onResize(width) {
+      state.feedWidth = width;
+      saveUi();
     },
     onToggleCollapsed() {
       state.collapsed = !state.collapsed;
@@ -287,6 +332,7 @@
         },
         handlers
       );
+      Resize.apply(state.feedWidth, handlers.onResize);
     });
   }
 
@@ -302,6 +348,7 @@
     if (records.some(touchesFeed)) schedule();
   }).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class'] }); // class: Campuswire's unread dot
   setInterval(schedule, 60 * 1000); // keep relative times current; no network
+  window.addEventListener('resize', schedule); // re-clamp the feed width to the new window
 
   // page-hook.js still loads while off (manifest scripts can't be switched off), but it only answers our requests.
   function setEnabled(enabled) {
@@ -314,6 +361,7 @@
       closeExport();
       endSelect();
       Render.teardown();
+      Resize.teardown();
     }
   }
 
@@ -330,6 +378,7 @@
     if (ui) {
       state.sorted = Boolean(ui.sorted);
       state.collapsed = Boolean(ui.collapsed);
+      state.feedWidth = Number(ui.feedWidth) || null;
     }
     setEnabled(enabled !== false);
   });

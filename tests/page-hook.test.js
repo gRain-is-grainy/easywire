@@ -221,3 +221,39 @@ test("passes on Campuswire's wall-post-deleted socket events", () => {
     [{ groupId: G, postId: 'p9' }]
   );
 });
+
+test("passes on Campuswire's live post, comment, read and resolved socket events", () => {
+  const hook = loadHook();
+  const socket = new hook.win.WebSocket('wss://example');
+  const post = { id: 'p9', group: G, number: 9, title: 'New', publishedAt: '2026-10-08T00:00:00.000Z' };
+  for (const [event, data] of [
+    ['wall-post-created', post],
+    ['wall-post-updated', { id: 'p9', title: 'Edited' }],
+    ['wall-post-answered', { id: 'c1', post: 'p1' }],
+    ['wall-post-comment-replied', { id: 'c2', post: 'p2' }],
+    ['wall-post-answer-updated', { id: 'c3', post: 'p3' }],
+    ['wall-post-answer-deleted', { answer: { id: 'c4', post: 'p4' } }],
+    ['wall-post-comment-deleted', { comment: { id: 'c5', post: 'p5' } }],
+    ['wall-post-read', { postId: 'p6' }],
+    ['wall-post-unread', { postId: 'p7' }],
+    ['question-resolved', { groupId: G, postId: 'p8' }],
+    ['question-unresolved', { groupId: G, postId: 'p8' }],
+    ['wall-post-liked', { like: { post: 'p1' } }],
+  ]) socket.receive(JSON.stringify({ event, data }));
+  socket.receive('{"event":"wall-post-answered","data":{}}');
+  socket.receive('not json');
+  const wall = hook.fromHook().filter((m) => m.type === 'wall').map(({ source, type, ...rest }) => rest);
+  assert.deepEqual(wall, [
+    { post },
+    { post: { id: 'p9', title: 'Edited' } },
+    { postId: 'p1' },
+    { postId: 'p2' },
+    { postId: 'p3' },
+    { postId: 'p4' },
+    { postId: 'p5' },
+    { postId: 'p6', changes: { read: true } },
+    { postId: 'p7', changes: { read: false } },
+    { postId: 'p8', changes: { answered: true } },
+    { postId: 'p8', changes: { answered: false } },
+  ]);
+});
