@@ -457,3 +457,100 @@ test('a post removed during a crawl does not come back when the crawl saves', as
   assert.equal((await fetcher.loadThreads(G)).p2, undefined);
   assert.ok(!seen.at(-1).includes('p2'));
 });
+
+test('upsertPost adds a newly published post from the socket, unread and with no replies', async () => {
+  const fetcher = createFetcher({ request: fakeApi({ posts: makePosts(2) }).request, storage: fakeStorage() });
+  await fetcher.refresh(G, () => {});
+  const raw = {
+    id: 'p3',
+    number: 3,
+    title: 'T3',
+    body: 'Hello',
+    publishedAt: '2026-10-08T00:00:00.000Z',
+    conversation: { id: 'conv3' }, // the socket nests it; the post list gives conversationId
+    author: { id: 'u1', firstName: 'A', lastName: 'B', photo: 'x.png' },
+  };
+  const cache = await fetcher.upsertPost(G, raw);
+  assert.deepEqual(cache.posts.map((p) => p.id), ['p3', 'p2', 'p1']);
+  assert.equal(cache.posts[0].conversationId, 'conv3');
+  assert.equal(cache.posts[0].read, false);
+  assert.equal(cache.posts[0].authorName, 'A B');
+  assert.deepEqual(cache.summaries.p3, { replyCount: 0, lastActivityAt: '2026-10-08T00:00:00.000Z' });
+  assert.deepEqual((await fetcher.loadThreads(G)).p3, { body: 'Hello', comments: [] });
+  assert.deepEqual(await fetcher.load(G), cache);
+});
+
+test('upsertPost takes an edited title and body but keeps the rest of a known post', async () => {
+  const fetcher = createFetcher({ request: fakeApi({ posts: makePosts(2) }).request, storage: fakeStorage() });
+  await fetcher.refresh(G, () => {});
+  const cache = await fetcher.upsertPost(G, { id: 'p2', title: 'Edited', body: 'New body' });
+  assert.deepEqual(cache.posts[0], { ...slim(makePosts(2)[0]), title: 'Edited', body: 'New body' });
+  assert.equal((await fetcher.loadThreads(G)).p2.body, 'New body');
+  const titleOnly = await fetcher.upsertPost(G, { id: 'p1', title: 'Only title' });
+  assert.equal(titleOnly.posts[1].title, 'Only title');
+  assert.equal(titleOnly.posts[1].body, 'B1');
+});
+
+test('upsertPost ignores drafts, partial posts it never saw and posts already deleted', async () => {
+  const fetcher = createFetcher({ request: fakeApi({ posts: makePosts(1) }).request, storage: fakeStorage() });
+  await fetcher.refresh(G, () => {});
+  const full = { number: 5, title: 'T', publishedAt: '2026-10-08T00:00:00.000Z' };
+  assert.equal(await fetcher.upsertPost(G, { ...full, id: 'd1', draft: true }), null);
+  assert.equal(await fetcher.upsertPost(G, { ...full, id: 'd2', publishedAt: null }), null);
+  assert.equal(await fetcher.upsertPost(G, { id: 'd3', title: 'partial update' }), null);
+  await fetcher.remove(G, 'gone');
+  assert.equal(await fetcher.upsertPost(G, { ...full, id: 'gone' }), null);
+  assert.deepEqual((await fetcher.load(G)).posts.map((p) => p.id), ['p1']);
+});
+
+test('patchPost changes read or resolved state of a known post only', async () => {
+  const fetcher = createFetcher({ request: fakeApi({ posts: makePosts(1) }).request, storage: fakeStorage() });
+  await fetcher.refresh(G, () => {});
+  const cache = await fetcher.patchPost(G, 'p1', { read: true, answered: true });
+  assert.equal(cache.posts[0].read, true);
+  assert.equal(cache.posts[0].answered, true);
+  assert.equal((await fetcher.load(G)).posts[0].answered, true);
+  assert.equal(await fetcher.patchPost(G, 'nope', { read: true }), null);
+});
+
+test('refreshComments re-reads one post and updates its summary and thread', async () => {
+  const comments = {};
+  const api = fakeApi({ posts: makePosts(2), comments });
+  const fetcher = createFetcher({ request: api.request, storage: fakeStorage() });
+  await fetcher.refresh(G, () => {});
+  comments.p1 = [{ createdAt: '2026-10-08T00:00:00.000Z', body: 'late reply', author: { firstName: 'T', lastName: 'A' } }];
+  const before = api.calls.length;
+  const cache = await fetcher.refreshComments(G, 'p1');
+  assert.deepEqual(api.calls.slice(before), [`https://api.campuswire.com/v1/group/${G}/posts/p1/comments`]);
+  assert.deepEqual(cache.summaries.p1, { replyCount: 1, lastActivityAt: '2026-10-08T00:00:00.000Z' });
+  const thread = (await fetcher.loadThreads(G)).p1;
+  assert.equal(thread.body, 'B1');
+  assert.equal(thread.comments[0].body, 'late reply');
+});
+
+test('refreshComments makes no request while paused and pauses on 429', async () => {
+  const api = fakeApi({ posts: makePosts(1), status: { '/p1/comments': 429 } });
+  const storage = fakeStorage();
+  const fetcher = createFetcher({ request: api.request, storage, now: () => 0 });
+  await fetcher.refresh(G, () => {}); // its 429 pauses
+  const before = api.calls.length;
+  assert.equal(await fetcher.refreshComments(G, 'p1'), null);
+  assert.equal(api.calls.length, before);
+  storage.data.pausedUntil = null;
+  assert.equal(await fetcher.refreshComments(G, 'p1'), null);
+  assert.equal(api.calls.length, before + 1);
+  assert.ok(storage.data.pausedUntil > 0);
+});
+
+test('live updates during a crawl land in what the crawl saves', async () => {
+  const storage = fakeStorage();
+  const fetcher = createFetcher({ request: fakeApi({ posts: makePosts(3), delay: 5 }).request, storage, concurrency: 1 });
+  let live = null;
+  const done = fetcher.refresh(G, (cache) => {
+    if (cache.posts.length && !live) live = fetcher.upsertPost(G, { id: 'p9', number: 9, title: 'T9', publishedAt: '2026-10-08T00:00:00.000Z' });
+  });
+  await done;
+  await live;
+  assert.deepEqual((await fetcher.load(G)).posts.map((p) => p.id), ['p9', 'p3', 'p2', 'p1']);
+  assert.ok((await fetcher.loadThreads(G)).p9);
+});

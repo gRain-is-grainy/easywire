@@ -26,6 +26,9 @@
   };
   let exportTimer = null, modalTimer = null, selectTimer = null;
   let feedGroupId = null; // last class Campuswire's feed loaded, so switching on can fetch it
+  let sawReady = false; // a later socket `ready` is a reconnect, which may have missed live events
+  const commentTimers = new Map(); // postId -> pending re-read, so a burst of replies costs one request
+  const COMMENT_DELAY_MS = 2000;
 
   // --- bridge to page-hook.js (MAIN world) ---
   let nextRequestId = 0;
@@ -63,9 +66,13 @@
       schedule();
     } else if (data.type === 'unread') {
       state.unreadCounts = data.counts;
+      if (sawReady && state.enabled && state.groupId) onFeed(state.groupId); // throttled like any refresh
+      sawReady = true;
       schedule();
     } else if (data.type === 'post-deleted') {
       onPostDeleted(data.groupId, data.postId);
+    } else if (data.type === 'wall') {
+      if (state.enabled) onWall(data);
     }
   });
 
@@ -104,6 +111,38 @@
     const { [postId]: _, ...summaries } = state.cache.summaries;
     state.cache = { posts: state.cache.posts.filter((post) => post.id !== postId), summaries };
     schedule();
+  }
+
+  // Campuswire's socket said a post was created or edited, its replies changed, or it was read or resolved.
+  function onWall({ post, postId, changes }) {
+    const groupId = state.groupId;
+    if (!groupId) return;
+    const show = (update) =>
+      update
+        .then((cache) => {
+          if (cache && state.groupId === groupId) {
+            state.cache = cache;
+            schedule();
+          }
+        })
+        .catch((error) => console.warn('[easywire] Could not apply live update:', error));
+    if (post) {
+      if (post.group === groupId || state.cache.posts.some((p) => p.id === post.id)) show(fetcher.upsertPost(groupId, post));
+      return;
+    }
+    if (!state.cache.posts.some((p) => p.id === postId)) return; // another class's post, or one we haven't loaded
+    if (changes) {
+      show(fetcher.patchPost(groupId, postId, changes));
+      return;
+    }
+    clearTimeout(commentTimers.get(postId));
+    commentTimers.set(
+      postId,
+      setTimeout(() => {
+        commentTimers.delete(postId);
+        if (state.enabled && state.groupId === groupId) show(fetcher.refreshComments(groupId, postId));
+      }, COMMENT_DELAY_MS)
+    );
   }
 
   function saveUi() {
