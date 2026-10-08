@@ -8,7 +8,7 @@ Latest-activity times, reply counts, a "Recent activity" sort, and personal pins
 
 [![Chrome MV3](https://img.shields.io/badge/Chrome-Manifest_V3-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white)](manifest.json)
 [![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)](src)
-[![Node Test Runner](https://img.shields.io/badge/node_--test-112_passing-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](tests)
+[![Node Test Runner](https://img.shields.io/badge/node_--test-116_passing-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](tests)
 [![Zero Dependencies](https://img.shields.io/badge/Dependencies-0-555555?style=for-the-badge)](#architecture)
 
 [Features](#features) · [How it stays read-only](#how-it-stays-read-only) · [Architecture](#architecture) · [Getting Started](#getting-started)
@@ -32,6 +32,7 @@ easywire fetches the replies for every post in the class, works out each post's 
 - **Native look** —> sorted and pinned cards reuse Campuswire's layout and post-type icons (pen for notes, check for resolved questions)
 - **Avatars and presence** —> pinned and sorted cards show the author's avatar with a live online dot, plus Campuswire's unread dot and new-comment badge
 - **Live updates** —> new posts, new or deleted replies, edited titles, and read or resolved changes show up as they happen, with no reload; a burst of replies re-reads just that post's comments once
+- **Resizable feed** —> drag the line between the post list and the post to widen or narrow the list; it never gets narrower than a readable title and post number, or wider than the post beside it, and the width is remembered
 - **Anonymous icons** —> anonymous posts get Campuswire's own anonymous avatar instead of the blank spot the page leaves, on native cards too
 
 ### Pins
@@ -85,6 +86,7 @@ flowchart LR
         PINS["pins.js<br/>list / toggle / prune"]
         RENDER["render.js<br/>decorates Campuswire's feed"]
         EXPORT["export.js<br/>posts + threads as text"]
+        RESIZE["resize.js<br/>feed width handle"]
     end
 
     subgraph STORE["Chrome storage"]
@@ -100,6 +102,7 @@ flowchart LR
     CONTENT --> FETCH
     CONTENT --> PINS
     CONTENT --> EXPORT
+    CONTENT --> RESIZE
     FETCH --> LOCAL
     PINS --> SYNC
     POPUP -- "enabled flag" --> LOCAL
@@ -129,6 +132,7 @@ flowchart LR
 │   ├── fetcher.js         #   Paging, reply summaries, cache, throttle, pause
 │   ├── render.js          #   Feed decorations, My pins, sorted list, dropdown items, selection + drag-select
 │   ├── export.js          #   Formats posts + threads as plain text (pure)
+│   ├── resize.js          #   Drag handle on the feed's right edge, clamped width
 │   ├── content.js         #   Wires everything together
 │   ├── styles.css
 │   ├── icons/             #   Toolbar icon (icon.svg source + PNG exports)

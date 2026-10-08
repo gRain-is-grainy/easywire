@@ -140,3 +140,26 @@ body.theme-dark .post-preview-wrapper.ew-selected {
 .ew-search-sorted > * {
   flex-shrink: 0;
 }
+/* Feed width handle: an invisible strip over the feed's right border that tints while hovered or dragged */
+.ew-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  z-index: 20;
+  cursor: col-resize;
+  touch-action: none;
+}
+.ew-resizer:hover,
+body.ew-resizing .ew-resizer {
+  background: rgba(79, 80, 255, 0.35);
+}
+body.ew-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+/* Campuswire caps cards, the "This week" rule and the class name at its default feed width */
+.left-col-2:has(> .ew-resizer) :is(.post-preview-wrapper, .filter-by, .sidebartitle-wrap h6) {
+  max-width: none;
+}

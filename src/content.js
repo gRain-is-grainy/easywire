@@ -2,6 +2,7 @@
   const { createFetcher } = globalThis.EasywireFetcher;
   const { createPins } = globalThis.EasywirePins;
   const Render = globalThis.EasywireRender;
+  const Resize = globalThis.EasywireResize;
   const { formatExport, filterPosts } = globalThis.EasywireExport;
   const REQUEST_TIMEOUT_MS = 15 * 1000;
 
@@ -12,6 +13,7 @@
     sorted: false,
     searchSorted: false, // "Recent activity" in the search modal's menu; in memory only
     collapsed: false,
+    feedWidth: null, // px, from dragging the feed's right edge; null keeps Campuswire's width
     paused: false,
     enabled: false, // set from storage at startup; the toolbar popup flips it
     presence: {}, // userId -> status, from Campuswire's own traffic via page-hook.js
@@ -146,7 +148,7 @@
   }
 
   function saveUi() {
-    chrome.storage.local.set({ ui: { sorted: state.sorted, collapsed: state.collapsed } });
+    chrome.storage.local.set({ ui: { sorted: state.sorted, collapsed: state.collapsed, feedWidth: state.feedWidth } });
   }
 
   // Copies from stored threads only; nothing is fetched, so the click still counts as a user gesture.
@@ -218,6 +220,10 @@
       if (!state.searchSorted) return;
       state.searchSorted = false;
       schedule();
+    },
+    onResize(width) {
+      state.feedWidth = width;
+      saveUi();
     },
     onToggleCollapsed() {
       state.collapsed = !state.collapsed;
@@ -326,6 +332,7 @@
         },
         handlers
       );
+      Resize.apply(state.feedWidth, handlers.onResize);
     });
   }
 
@@ -341,6 +348,7 @@
     if (records.some(touchesFeed)) schedule();
   }).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class'] }); // class: Campuswire's unread dot
   setInterval(schedule, 60 * 1000); // keep relative times current; no network
+  window.addEventListener('resize', schedule); // re-clamp the feed width to the new window
 
   // page-hook.js still loads while off (manifest scripts can't be switched off), but it only answers our requests.
   function setEnabled(enabled) {
@@ -353,6 +361,7 @@
       closeExport();
       endSelect();
       Render.teardown();
+      Resize.teardown();
     }
   }
 
@@ -369,6 +378,7 @@
     if (ui) {
       state.sorted = Boolean(ui.sorted);
       state.collapsed = Boolean(ui.collapsed);
+      state.feedWidth = Number(ui.feedWidth) || null;
     }
     setEnabled(enabled !== false);
   });
