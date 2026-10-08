@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "easywire",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Campuswire feed: latest-activity times, reply counts, activity sort, and personal pins.",
   "permissions": ["storage", "unlimitedStorage"],
   "icons": { "16": "src/icons/icon-16.png", "32": "src/icons/icon-32.png", "48": "src/icons/icon-48.png", "128": "src/icons/icon-128.png" },

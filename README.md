@@ -8,7 +8,7 @@ Latest-activity times, reply counts, a "Recent activity" sort, and personal pins
 
 [![Chrome MV3](https://img.shields.io/badge/Chrome-Manifest_V3-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white)](manifest.json)
 [![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)](src)
-[![Node Test Runner](https://img.shields.io/badge/node_--test-103_passing-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](tests)
+[![Node Test Runner](https://img.shields.io/badge/node_--test-104_passing-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](tests)
 [![Zero Dependencies](https://img.shields.io/badge/Dependencies-0-555555?style=for-the-badge)](#architecture)
 
 [Features](#features) · [How it stays read-only](#how-it-stays-read-only) · [Architecture](#architecture) · [Getting Started](#getting-started)
@@ -28,7 +28,7 @@ easywire fetches the replies for every post in the class, works out each post's 
 ### Feed
 - **Latest-activity times** —> each post's clock shows the newest reply time, not the original post time, using the same moment.js wording Campuswire uses (`12 hours`, `a day`, `3 days`)
 - **Reply counts** —> every feed item shows its total replies at every depth, right next to the time
-- **Recent activity sort** —> a new option in Campuswire's own category dropdown that re-orders the whole class feed by latest activity
+- **Recent activity sort** —> a new option in Campuswire's own category dropdown that re-orders the whole class feed by latest activity; the search modal's dropdown gets its own, which re-orders the search results
 - **Native look** —> sorted and pinned cards reuse Campuswire's layout and post-type icons (pen for notes, check for resolved questions)
 - **Avatars and presence** —> pinned and sorted cards show the author's avatar with a live online dot, plus Campuswire's unread dot and new-comment badge
 - **Anonymous icons** —> anonymous posts get Campuswire's own anonymous avatar instead of the blank spot the page leaves, on native cards too

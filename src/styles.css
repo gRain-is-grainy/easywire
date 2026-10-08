@@ -132,3 +132,11 @@ body.theme-dark .post-preview-wrapper.ew-selected {
 .ew-select .custom-control-label::before {
   border-radius: 4px;
 }
+/* "Recent activity" in the search modal reorders the results with CSS order; cards must not shrink in the scrolling list */
+.ew-search-sorted {
+  display: flex;
+  flex-direction: column;
+}
+.ew-search-sorted > * {
+  flex-shrink: 0;
+}

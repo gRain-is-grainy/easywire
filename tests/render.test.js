@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle, unreadOf, ANONYMOUS_IMG, selectHtml, selectBarHtml, exportModalView, EXPORT_MODAL_HTML, dragSelection } = require('../src/render.js');
+const { postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle, unreadOf, ANONYMOUS_IMG, selectHtml, selectBarHtml, exportModalView, EXPORT_MODAL_HTML, dragSelection, searchOrder } = require('../src/render.js');
 
 test('postNumberFromRef', () => {
   assert.equal(postNumberFromRef('#40'), 40);
@@ -212,4 +212,14 @@ test('dragSelection: empty range returns a copy of base; inputs are not mutated'
   dragSelection(base, range, 'deselect');
   assert.deepEqual(base, ['a', 'b']);
   assert.deepEqual(range, ['b', 'c']);
+});
+
+test('searchOrder ranks results by latest activity and puts unknown cards after them in page order', () => {
+  globalThis.EasywireActivity = require('../src/activity.js');
+  const old = { id: 'a', number: 1, publishedAt: '2026-01-01T00:00:00Z' };
+  const fresh = { id: 'b', number: 2, publishedAt: '2026-01-02T00:00:00Z' };
+  const replied = { id: 'c', number: 3, publishedAt: '2025-12-01T00:00:00Z' };
+  const summaries = { c: { replyCount: 1, lastActivityAt: '2026-01-03T00:00:00Z' } };
+  assert.deepEqual(searchOrder([old, null, fresh, replied, null], summaries), ['2', '4', '1', '0', '7']);
+  assert.deepEqual(searchOrder([], summaries), []);
 });
