@@ -10,6 +10,7 @@
     cache: { posts: [], summaries: {} },
     pinnedIds: [],
     sorted: false,
+    searchSorted: false, // "Recent activity" in the search modal's menu; in memory only
     collapsed: false,
     paused: false,
     enabled: false, // set from storage at startup; the toolbar popup flips it
@@ -170,6 +171,15 @@
       saveUi();
       schedule();
     },
+    onToggleSearchSorted() {
+      state.searchSorted = !state.searchSorted;
+      schedule();
+    },
+    onSearchSortOff() {
+      if (!state.searchSorted) return;
+      state.searchSorted = false;
+      schedule();
+    },
     onToggleCollapsed() {
       state.collapsed = !state.collapsed;
       saveUi();
@@ -263,6 +273,7 @@
           summaries: state.cache.summaries,
           pinnedIds: state.pinnedIds,
           sorted: state.sorted,
+          searchSorted: state.searchSorted,
           collapsed: state.collapsed,
           paused: state.paused,
           presence: state.presence,
@@ -279,11 +290,12 @@
     });
   }
 
-  // Only feed-column changes matter; ignoring the rest keeps typing in the composer from re-rendering every frame.
+  // Only feed-column and search-result changes matter; ignoring the rest keeps typing in the composer from re-rendering every frame.
   function touchesFeed(record) {
     const column = document.querySelector(Render.SELECTORS.column);
+    const search = document.querySelector(Render.SELECTORS.searchModal);
     const node = record.target.nodeType === Node.ELEMENT_NODE ? record.target : record.target.parentNode;
-    return !column || !node || column.contains(node) || node.contains(column);
+    return !column || !node || column.contains(node) || node.contains(column) || Boolean(search && search.contains(node));
   }
 
   new MutationObserver((records) => {

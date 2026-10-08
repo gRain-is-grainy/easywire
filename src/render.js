@@ -4,6 +4,9 @@
     nativeList: '.left-col-2 .posts-list-wrap:not(.ew-root)',
     categoryButton: '.left-col-2 .dropdown-btn-wrapper > button',
     categoryMenu: 'ul.dropdown-menu.categories-list', // Tippy popup, mounted on <body> only while open
+    searchModal: '#search-modal',
+    searchList: '#search-modal .posts-list-wrap',
+    searchCategoryButton: '#search-modal .tabs-wrapper .dropdown-btn-wrapper > button',
     item: '.post-preview-wrapper',
     titleText: '.post-title h3',
     ref: '.post-ref',
@@ -23,6 +26,8 @@
   const DRAG_EDGE = 40; // px from the feed's top or bottom where a drag auto-scrolls
   const DRAG_SPEED = 20; // px per frame at the very edge
   const DRAG_SLOP = 5; // px the pointer may wander during a plain click
+  const LOAD_TIMEOUT_MS = 5000; // how long openPost waits for Campuswire's next page before deciding the feed has ended
+  let opening = false; // openPost is loading pages
 
   function postNumberFromRef(text) {
     const match = /#(\d+)/.exec(text || '');
@@ -360,32 +365,46 @@
     event.stopPropagation();
   }
 
-  function closeMenu() {
-    const button = document.querySelector(SELECTORS.categoryButton);
+  // The feed and the search modal each have a category menu; Tippy names the open one in its button's aria-describedby.
+  function menuButton(menu) {
+    const popper = menu.closest('.tippy-popper');
+    return popper && popper.id ? document.querySelector(`button[aria-describedby="${popper.id}"]`) : null;
+  }
+
+  const inSearch = (menu) => Boolean(menuButton(menu)?.closest(SELECTORS.searchModal));
+
+  function closeMenu(menu) {
+    const button = menuButton(menu);
     if (button) button.click(); // closes Campuswire's menu
   }
 
   // Picking "Recent activity" toggles the sort; picking any Campuswire filter turns it off so that filter applies.
+  // The search modal's menu sorts the search results, separately from the feed.
   function onMenuClick(event) {
     const li = event.target.closest('li[data-content]');
     if (!li) return;
+    const menu = event.currentTarget;
+    const search = inSearch(menu);
     if (li.classList.contains('ew-export')) {
       event.stopPropagation(); // keep the menu open so the "Copied" label shows
-      if (!handlers.onExport()) closeMenu(); // opening the modal: get the menu out of the way
+      if (!handlers.onExport()) closeMenu(menu); // opening the modal: get the menu out of the way
       return;
     }
     if (!li.classList.contains('ew-recent')) {
-      handlers.onSortOff();
+      if (search) handlers.onSearchSortOff();
+      else handlers.onSortOff();
       return;
     }
     event.stopPropagation();
-    handlers.onToggleSorted();
-    closeMenu();
+    if (search) handlers.onToggleSearchSorted();
+    else handlers.onToggleSorted();
+    closeMenu(menu);
   }
 
   function ensureMenuItem(state) {
     const menu = document.querySelector(SELECTORS.categoryMenu);
     if (!menu) return;
+    const sorted = inSearch(menu) ? state.searchSorted : state.sorted;
     let li = menu.querySelector(':scope > .ew-recent');
     if (!li) {
       const html = `<li data-content="true" class="ew-recent"><i class="far fa-clock"></i>${RECENT_LABEL}</li>`;
@@ -395,7 +414,7 @@
       li = menu.querySelector(':scope > .ew-recent');
       menu.addEventListener('click', onMenuClick, true); // same function, so re-adding is a no-op
     }
-    const className = state.sorted ? 'ew-recent is-on' : 'ew-recent';
+    const className = sorted ? 'ew-recent is-on' : 'ew-recent';
     if (li.className !== className) li.className = className;
     const title = state.paused
       ? 'Activity data paused (Campuswire refused requests); showing cached data'
@@ -571,6 +590,27 @@
     if (all.disabled !== view.allDisabled) all.disabled = view.allDisabled;
   }
 
+  // CSS order for each search result: known posts by latest activity, then the rest (no cached post) in page order.
+  function searchOrder(posts, summaries) {
+    const ranked = root.EasywireActivity.sortByActivity(posts.filter(Boolean), summaries);
+    return posts.map((post, i) => String(post ? ranked.indexOf(post) : ranked.length + i));
+  }
+
+  // Reorders Campuswire's search results with CSS order, so React's own nodes are never moved.
+  function sortSearch(list, byNumber, state) {
+    if (list.classList.contains('ew-search-sorted') !== state.searchSorted) list.classList.toggle('ew-search-sorted', state.searchSorted);
+    const kids = [...list.children];
+    const postOf = (kid) => {
+      const post = byNumber.get(postNumberFromRef(kid.querySelector(SELECTORS.ref)?.textContent));
+      const title = kid.querySelector(SELECTORS.titleText);
+      return post && title && sameTitle(title.textContent, post.title) ? post : null;
+    };
+    const orders = state.searchSorted ? searchOrder(kids.map(postOf), state.summaries) : kids.map(() => '');
+    kids.forEach((kid, i) => {
+      if (kid.style.order !== orders[i]) kid.style.order = orders[i];
+    });
+  }
+
   function render(state, nextHandlers) {
     handlers = nextHandlers;
     renderExportModal(state); // before the layout check: the dialog is on <body> and must close even if the feed is gone
@@ -598,6 +638,10 @@
     window.addEventListener('click', onClickAfterDrag, true); // window capture runs before anything else
     setCategoryLabel(categoryButton, state.sorted);
     const byNumber = new Map(state.posts.map((post) => [post.number, post]));
+    const searchButton = document.querySelector(SELECTORS.searchCategoryButton);
+    if (searchButton) setCategoryLabel(searchButton, state.searchSorted);
+    const searchList = document.querySelector(SELECTORS.searchList);
+    if (searchList) sortSearch(searchList, byNumber, state);
     const live = { ...state, native: new Map() }; // native: post id -> unread dot and badge on Campuswire's own card
     for (const item of nativeList.querySelectorAll(SELECTORS.item)) decorateNative(item, byNumber, live);
     renderRoot(nativeList, live);
@@ -611,8 +655,12 @@
     for (const item of document.querySelectorAll('.ew-selected')) item.classList.remove('ew-selected');
     selecting = false;
     endDrag();
-    const categoryButton = document.querySelector(SELECTORS.categoryButton);
-    if (categoryButton) setCategoryLabel(categoryButton, false);
+    for (const button of document.querySelectorAll('button[data-ew-label]')) setCategoryLabel(button, false);
+    const searchList = document.querySelector(SELECTORS.searchList);
+    if (searchList) {
+      searchList.classList.remove('ew-search-sorted');
+      for (const kid of searchList.children) kid.style.order = '';
+    }
     for (const time of document.querySelectorAll('[data-ew-original]')) {
       setClockText(time, time.dataset.ewOriginal);
       delete time.dataset.ewOriginal;
@@ -625,22 +673,50 @@
     if (nativeList) nativeList.style.display = '';
   }
 
-  function openPost(number) {
-    const nativeList = document.querySelector(SELECTORS.nativeList);
-    const items = nativeList ? [...nativeList.querySelectorAll(SELECTORS.item)] : [];
-    const native = items.find((item) => {
+  function findNative(list, number) {
+    return [...list.querySelectorAll(SELECTORS.item)].find((item) => {
       const ref = item.querySelector(SELECTORS.ref);
       return postNumberFromRef(ref && ref.textContent) === number;
     });
+  }
+
+  // Campuswire fetches its next page on any scroll event at the bottom of the feed; false once nothing more arrives.
+  async function loadMore(list, scroller) {
+    const count = list.querySelectorAll(SELECTORS.item).length;
+    const bottom = scroller.scrollHeight - scroller.clientHeight;
+    if (Math.ceil(scroller.scrollTop) < bottom) scroller.scrollTop = bottom;
+    else scroller.dispatchEvent(new Event('scroll')); // already there: while sorted, new cards land in the hidden list and never grow the feed
+    const start = Date.now();
+    while (Date.now() - start < LOAD_TIMEOUT_MS) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      if (list.querySelectorAll(SELECTORS.item).length > count) return true;
+    }
+    return false;
+  }
+
+  // Campuswire shows a post missing from its loaded list as a modal, and a page load would reload everything,
+  // so load older pages the way scrolling does until the post's own card exists, then click it.
+  async function openPost(number) {
+    const nativeList = document.querySelector(SELECTORS.nativeList);
+    if (!nativeList || opening) return;
+    opening = true;
+    const scroller = nativeList.parentElement;
+    const scrollTop = scroller.scrollTop;
+    let native = findNative(nativeList, number);
+    while (!native && (await loadMore(nativeList, scroller))) native = findNative(nativeList, number);
+    scroller.scrollTop = scrollTop;
+    opening = false;
     if (native) {
       native.click();
       return;
     }
+    if (!nativeList.isConnected) return; // the user moved on while pages loaded
+    // The feed ended without it (e.g. a category filter hides it): fall back to Campuswire's own post URL.
     const slug = groupSlugFromPath(location.pathname);
     if (slug) location.assign(`/c/${slug}/feed/${number}`);
   }
 
-  const api = { SELECTORS, ANONYMOUS_IMG, render, teardown, openPost, postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle, unreadOf, selectHtml, selectBarHtml, exportModalView, EXPORT_MODAL_HTML, dragSelection };
+  const api = { SELECTORS, ANONYMOUS_IMG, render, teardown, openPost, postNumberFromRef, groupSlugFromPath, escapeHtml, itemHtml, sameTitle, unreadOf, selectHtml, selectBarHtml, exportModalView, EXPORT_MODAL_HTML, dragSelection, searchOrder };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.EasywireRender = api;
 })(globalThis);
