@@ -309,6 +309,11 @@
     if (area === 'local' && 'enabled' in changes) setEnabled(changes.enabled.newValue !== false);
   });
 
+  // The toolbar popup asks which class this tab is showing, to read its cached status.
+  chrome.runtime.onMessage.addListener((message, _sender, reply) => {
+    if (message && message.type === 'status') reply({ groupId: feedGroupId });
+  });
+
   chrome.storage.local.get(['ui', 'enabled']).then(({ ui, enabled }) => {
     if (ui) {
       state.sorted = Boolean(ui.sorted);
